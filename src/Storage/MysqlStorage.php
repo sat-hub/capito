@@ -150,6 +150,65 @@ class MysqlStorage implements StorageInterface
     }
 
     /**
+     * Set rate limit bucket data for a key
+     * @param string $key Rate limit identifier (e.g., IP address)
+     * @param array $bucketData Bucket data ['tokens' => float, 'last_refill' => float]
+     * @param int $expiresTs Expiration timestamp
+     * @return bool Success status
+     */
+    public function setRateLimitBucket(string $key, array $bucketData, int $expiresTs): bool
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            $sql = "INSERT INTO {$this->table} (`key`, key_type, data, expires_at) VALUES (?, 'rate_limit', ?, ?) 
+                    ON DUPLICATE KEY UPDATE data = VALUES(data), expires_at = VALUES(expires_at)";
+            $stmt = $this->pdo->prepare($sql);
+            return $stmt->execute([$rateLimitKey, json_encode($bucketData), $expiresTs]);
+        } catch (\PDOException $e) {
+            error_log("MySQLStorage: Failed to set rate limit bucket: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get rate limit bucket data for a key
+     * @param string $key Rate limit identifier (e.g., IP address)
+     * @return array|null Bucket data or null if not found
+     */
+    public function getRateLimitBucket(string $key): ?array
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            $sql = "SELECT data FROM {$this->table} WHERE `key` = ? AND key_type = 'rate_limit' AND expires_at > ? LIMIT 1";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$rateLimitKey, time()]);
+            $data = $stmt->fetchColumn();
+            return $data === false ? null : json_decode($data, true);
+        } catch (\PDOException $e) {
+            error_log("MySQLStorage: Failed to get rate limit bucket: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Delete rate limit bucket for a key
+     * @param string $key Rate limit identifier
+     * @return bool Success status
+     */
+    public function deleteRateLimitBucket(string $key): bool
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            $sql = "DELETE FROM {$this->table} WHERE `key` = ? AND key_type = 'rate_limit'";
+            $stmt = $this->pdo->prepare($sql);
+            return $stmt->execute([$rateLimitKey]);
+        } catch (\PDOException $e) {
+            error_log("MySQLStorage: Failed to delete rate limit bucket: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Creates the storage table if it does not exist.
      *
      * @return void
@@ -158,7 +217,7 @@ class MysqlStorage implements StorageInterface
     {
         $sql = "CREATE TABLE IF NOT EXISTS `{$this->table}` (
             `key` varchar(255) NOT NULL,
-            `key_type` ENUM('challenge', 'token') NOT NULL,
+            `key_type` ENUM('challenge', 'token', 'rate_limit') NOT NULL,
             `data` json NOT NULL,
             `expires_at` int(11) NOT NULL,
             PRIMARY KEY (`key`),
