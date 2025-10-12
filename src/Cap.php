@@ -33,9 +33,8 @@ class Cap
     private const DEFAULT_BRUTE_FORCE_WINDOW = 60; // seconds
     // --- Default Dynamic Difficulty Configuration ---
     private const DEFAULT_DYNAMIC_DIFFICULTY_ENABLED = true;
-    private const DEFAULT_DIFFICULTY_INCREASE_LOW = 1;   // +1 difficulty when tokens < 4
-    private const DEFAULT_DIFFICULTY_INCREASE_HIGH = 2;  // +2 difficulty when tokens < 2
-    private const DEFAULT_DIFFICULTY_MAX = 6;
+    private const DEFAULT_DIFFICULTY_MODERATE = 3;  // Difficulty when 40-80% of rate limit used
+    private const DEFAULT_DIFFICULTY_AGGRESSIVE = 4; // Difficulty when >80% of rate limit used
     
     /**
      * Create a new Cap instance.
@@ -55,9 +54,8 @@ class Cap
      * - bruteForceLimit: int - Max challenge requests per window (default: 5).
      * - bruteForceWindow: int - Brute force time window in seconds (default: 60).
      * - dynamicDifficultyEnabled: bool - Enable dynamic difficulty scaling (default: true).
-     * - difficultyIncreaseLow: int - Difficulty increase when tokens < 4 (default: 1).
-     * - difficultyIncreaseHigh: int - Difficulty increase when tokens < 2 (default: 2).
-     * - difficultyMax: int - Maximum difficulty level (default: 6).
+     * - difficultyModerate: int - Difficulty when moderate rate limiting pressure (default: 3).
+     * - difficultyAggressive: int - Difficulty when high rate limiting pressure (default: 4).
      * * @throws CapException if storage is not provided.
      */
     public function __construct(?array $configObj = null)
@@ -78,9 +76,8 @@ class Cap
             'bruteForceWindow' => self::DEFAULT_BRUTE_FORCE_WINDOW,
             // Dynamic difficulty settings
             'dynamicDifficultyEnabled' => self::DEFAULT_DYNAMIC_DIFFICULTY_ENABLED,
-            'difficultyIncreaseLow' => self::DEFAULT_DIFFICULTY_INCREASE_LOW,
-            'difficultyIncreaseHigh' => self::DEFAULT_DIFFICULTY_INCREASE_HIGH,
-            'difficultyMax' => self::DEFAULT_DIFFICULTY_MAX,
+            'difficultyModerate' => self::DEFAULT_DIFFICULTY_MODERATE,
+            'difficultyAggressive' => self::DEFAULT_DIFFICULTY_AGGRESSIVE,
         ];
         if ($configObj !== null) {
             $this->config = array_merge($this->config, array_intersect_key($configObj, $this->config));
@@ -160,20 +157,11 @@ class Cap
             return $this->config['challengeDifficulty'];
         }
 
-        $bruteForceKey = "brute_force:" . $identifier;
-        $remainingTokens = $this->rateLimiter->getTokens($bruteForceKey);
-        $bruteForceLimit = $this->config['bruteForceLimit'];
+        $remainingTokens = $this->rateLimiter->getTokens("brute_force:" . $identifier);
+        $limit = $this->config['bruteForceLimit'];
         
-        // Calculate thresholds based on the configurable brute force limit
-        $highThreshold = max(1, $bruteForceLimit * 0.4); // 40% of limit (2 out of 5 by default)
-        $lowThreshold = max(1, $bruteForceLimit * 0.8);  // 80% of limit (4 out of 5 by default)
-        
-        // Increase difficulty progressively based on remaining tokens
-        if ($remainingTokens < $highThreshold) {
-            return min($this->config['difficultyMax'], $this->config['challengeDifficulty'] + $this->config['difficultyIncreaseHigh']);
-        } elseif ($remainingTokens < $lowThreshold) {
-            return min($this->config['difficultyMax'], $this->config['challengeDifficulty'] + $this->config['difficultyIncreaseLow']);
-        }
+        if ($remainingTokens < max(1, $limit * 0.4)) return $this->config['difficultyAggressive'];
+        if ($remainingTokens < max(1, $limit * 0.8)) return $this->config['difficultyModerate'];
         
         return $this->config['challengeDifficulty']; // Normal difficulty
     }
