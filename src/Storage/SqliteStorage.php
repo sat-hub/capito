@@ -162,6 +162,62 @@ class SqliteStorage implements StorageInterface
     }
 
     /**
+     * @inheritDoc
+     */
+    public function setRateLimitBucket(string $key, array $bucketData, int $expiresTs): bool
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            $sql = "INSERT OR REPLACE INTO {$this->table} (`key`, key_type, data, expires_at) VALUES (?, 'rate_limit', ?, ?)";
+            $stmt = $this->pdo->prepare($sql);
+            return $stmt->execute([$rateLimitKey, json_encode($bucketData), $expiresTs]);
+        } catch (\PDOException $e) {
+            error_log("SQLiteStorage: Failed to set rate limit bucket: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getRateLimitBucket(string $key): ?array
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            $sql = "SELECT data FROM {$this->table} WHERE `key` = ? AND key_type = 'rate_limit' AND expires_at > ? LIMIT 1";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$rateLimitKey, time()]);
+            $data = $stmt->fetchColumn();
+            
+            if ($data === false) {
+                return null;
+            }
+            
+            $decoded = json_decode($data, true);
+            return $decoded ?: null;
+        } catch (\PDOException $e) {
+            error_log("SQLiteStorage: Failed to get rate limit bucket: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function deleteRateLimitBucket(string $key): bool
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            $sql = "DELETE FROM {$this->table} WHERE `key` = ? AND key_type = 'rate_limit'";
+            $stmt = $this->pdo->prepare($sql);
+            return $stmt->execute([$rateLimitKey]);
+        } catch (\PDOException $e) {
+            error_log("SQLiteStorage: Failed to delete rate limit bucket: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Creates the storage table if it does not exist.
      *
      * @return void

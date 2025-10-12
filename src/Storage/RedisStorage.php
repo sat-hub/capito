@@ -182,6 +182,62 @@ class RedisStorage implements StorageInterface
     {
         return $this->connected && $this->redis->ping();
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function setRateLimitBucket(string $key, array $bucketData, int $expiresTs): bool
+    {
+        try {
+            $rateLimitKey = $this->getKey("rate_limit:" . $key);
+            $ttl = $expiresTs - time();
+            
+            if ($ttl <= 0) {
+                return false; // Already expired
+            }
+            
+            return $this->redis->setex($rateLimitKey, $ttl, json_encode($bucketData)) !== false;
+        } catch (Exception $e) {
+            error_log("RedisStorage: Failed to set rate limit bucket: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getRateLimitBucket(string $key): ?array
+    {
+        try {
+            $rateLimitKey = $this->getKey("rate_limit:" . $key);
+            $jsonData = $this->redis->get($rateLimitKey);
+            
+            if ($jsonData === false) {
+                return null;
+            }
+            
+            $data = json_decode($jsonData, true);
+            return $data ?: null;
+        } catch (Exception $e) {
+            error_log("RedisStorage: Failed to get rate limit bucket: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function deleteRateLimitBucket(string $key): bool
+    {
+        try {
+            $rateLimitKey = $this->getKey("rate_limit:" . $key);
+            $this->redis->del($rateLimitKey);
+            return true;
+        } catch (Exception $e) {
+            error_log("RedisStorage: Failed to delete rate limit bucket: " . $e->getMessage());
+            return false;
+        }
+    }
     
     /**
      * Get full Redis key with prefix

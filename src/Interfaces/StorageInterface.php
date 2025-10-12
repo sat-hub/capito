@@ -60,4 +60,30 @@ interface StorageInterface
      * @return bool True if available, false otherwise.
      */
     public function isAvailable(): bool;
+
+    /**
+     * Set rate limit bucket data for a key.
+     *
+     * @param string $key Rate limit identifier (e.g., IP address).
+     * @param array $bucketData Bucket data ['tokens' => float, 'last_refill' => float].
+     * @param int $expiresTs Expiration timestamp.
+     * @return bool True on success, false on failure.
+     */
+    public function setRateLimitBucket(string $key, array $bucketData, int $expiresTs): bool;
+
+    /**
+     * Get rate limit bucket data for a key.
+     *
+     * @param string $key Rate limit identifier (e.g., IP address).
+     * @return array|null Bucket data or null if not found/expired.
+     */
+    public function getRateLimitBucket(string $key): ?array;
+
+    /**
+     * Delete rate limit bucket for a key.
+     *
+     * @param string $key Rate limit identifier.
+     * @return bool True on success, false on failure.
+     */
+    public function deleteRateLimitBucket(string $key): bool;
 }
