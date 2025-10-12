@@ -22,7 +22,7 @@ Mainly crafted from [Sparkinzy Cap Php Server](https://github.com/Sparkinzy/cap_
 ### Architecture
 - **SHA-256 Proof-of-Work**: Cryptographically secure validation mechanism
 - **Modular Storage**: Supports memory, file, and Redis storage backends
-- **Smart Rate Limiting**: Built-in token bucket algorithm for DDoS protection
+- **Rolling Penalty Rate Limiting**: Brute force protection with escalating penalties
 - **Auto Cleanup**: Intelligent expiry and memory-friendly data cleaning
 
 ### Production 
@@ -36,7 +36,7 @@ Mainly crafted from [Sparkinzy Cap Php Server](https://github.com/Sparkinzy/cap_
 ### Security
 - **Replay Attack Prevention**: One-time validation tokens
 - **Typed Exceptions**: Comprehensive error handling and categorization
-- **Rate limiting**: Per-IP rate limiting, compatible with proxy
+- **Brute Force Protection**: Per-IP rolling penalty rate limiting, compatible with proxy
 
 ### Developer 
 - **PSR-4 Standard**: Modern PHP autoloading compliance
@@ -75,8 +75,9 @@ $capServer = new Cap([
     'challengeCount' => 3,          // 3 challenges (1–3 seconds to solve)   [== 5 higher sec]
     'challengeSize' => 16,          // 16-byte salt    
     'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]
-    'rateLimitRps' => 10,           // 10 req/sec rate limit                 [==5 stricter rate]
-    'rateLimitBurst' => 50,         // 50 burst capacity                     [==20 smaller burst]
+    'bruteForceLimit' => 5,         // 5 requests per window                  [==3 stricter limit]
+    'bruteForceWindow' => 60,       // 60 second time window                  [==30 shorter window]
+    'bruteForcePenalty' => 60,      // 60 second penalty when blocked         [==120 longer penalty]
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
     'tokenExpires' => 600,          // Token expires in 10 minutes  
@@ -104,8 +105,9 @@ $capServer = new Cap([
     'challengeCount' => 3,          // 3 challenges (1–3 seconds to solve)   [== 5 higher sec]
     'challengeSize' => 16,          // 16-byte salt    
     'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]
-    'rateLimitRps' => 10,           // 10 req/sec rate limit                 [==5 stricter rate]
-    'rateLimitBurst' => 50,         // 50 burst capacity                     [==20 smaller burst]
+    'bruteForceLimit' => 5,         // 5 requests per window                  [==3 stricter limit]
+    'bruteForceWindow' => 60,       // 60 second time window                  [==30 shorter window]
+    'bruteForcePenalty' => 60,      // 60 second penalty when blocked         [==120 longer penalty]
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
     'tokenExpires' => 600,          // Token expires in 10 minutes  
@@ -131,8 +133,9 @@ $capServer = new Cap([
     'challengeCount' => 3,          // 3 challenges (1–3 seconds to solve)   [== 5 higher sec]
     'challengeSize' => 16,          // 16-byte salt    
     'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]
-    'rateLimitRps' => 10,           // 10 req/sec rate limit                 [==5 stricter rate]
-    'rateLimitBurst' => 50,         // 50 burst capacity                     [==20 smaller burst]
+    'bruteForceLimit' => 5,         // 5 requests per window                  [==3 stricter limit]
+    'bruteForceWindow' => 60,       // 60 second time window                  [==30 shorter window]
+    'bruteForcePenalty' => 60,      // 60 second penalty when blocked         [==120 longer penalty]
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
     'tokenExpires' => 600,          // Token expires in 10 minutes  
@@ -152,8 +155,9 @@ $capServer = new Cap([
     'challengeCount' => 5,          // higher sec
     'challengeSize' => 16,          
     'challengeDifficulty' => 3,     // Difficulty 3 (hard)
-    'rateLimitRps' => 5,           // only 5 req/sec rate limit, stricter rate
-    'rateLimitBurst' => 20,         // 20 burst capacity, smaller burst
+    'bruteForceLimit' => 3,         // only 3 requests per window, stricter limit
+    'bruteForceWindow' => 120,      // 2 minute window, longer wait time
+    'bruteForcePenalty' => 300,     // 5 minute penalty when blocked, much longer penalty
 ```
 
 ## ⚙️ Complete Configuration Reference
@@ -176,20 +180,35 @@ The Cap class supports comprehensive configuration options to fine-tune security
 | `tokenExpires` | `int` | `1200` | Verification token expiration time in seconds (20 minutes) |
 | `tokenVerifyOnce` | `bool` | `true` | Whether tokens can only be validated once |
 
-### Rate Limiting Configuration
+### Brute Force Protection (Rolling Penalty Rate Limiting)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `rateLimitRps` | `int` | `10` | Requests per second allowed per identifier |
-| `rateLimitBurst` | `int` | `50` | Maximum burst capacity for rate limiting |
+| `bruteForceLimit` | `int` | `5` | Maximum challenge requests allowed in the initial time window |
+| `bruteForceWindow` | `int` | `60` | Initial time window in seconds for counting requests (e.g., 5 requests per 60 seconds) |
+| `bruteForcePenalty` | `int` | `60` | Penalty duration in seconds when limit exceeded. Set to 0 to disable brute force protection |
 
-### Brute Force Protection
+**Rolling Penalty Behavior**: When you exceed the limit (5 requests in 60 seconds), you must wait the penalty duration FROM when you made the blocked request. Each blocked request resets the penalty timer. For example, with default settings (5 requests per 60 seconds, 60-second penalty):
+- Requests 1-5: Allowed within any 60-second window
+- Request 6 at time 50s: **BLOCKED** - must wait penalty duration (60s) → unblocked at 110s
+- Request 7 at time 55s: **BLOCKED** - penalty resets → unblocked at 115s (55s + 60s penalty)
+- **Key Rule**: Every attempt while blocked extends the penalty by the full penalty duration from that attempt
+- **Disable Protection**: Set `bruteForcePenalty` to 0 to disable brute force protection entirely
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `bruteForceEnabled` | `bool` | `true` | Enable/disable brute force protection |
-| `bruteForceLimit` | `int` | `5` | Maximum challenge requests per time window |
-| `bruteForceWindow` | `int` | `60` | Brute force protection window in seconds |
+#### Rolling Penalty Example Timeline
+```
+Time 0s:  Request 1 ✅ (Window: 0s-60s, Count: 1/5)
+Time 12s: Request 2 ✅ (Window: 0s-60s, Count: 2/5)  
+Time 24s: Request 3 ✅ (Window: 0s-60s, Count: 3/5)
+Time 36s: Request 4 ✅ (Window: 0s-60s, Count: 4/5)
+Time 48s: Request 5 ✅ (Window: 0s-60s, Count: 5/5)
+Time 50s: Request 6 ❌ BLOCKED! (Must wait 60s → unblocked at 110s)
+Time 55s: Request 7 ❌ BLOCKED! (Penalty resets → unblocked at 115s)  
+Time 60s: Request 8 ❌ BLOCKED! (Penalty resets → unblocked at 120s)
+Time 120s: Request 9 ✅ (Penalty expired, new window starts)
+```
+
+**Key Difference from Sliding Windows**: In a sliding window, making requests every 12 seconds would never be blocked. With rolling penalties, each blocked request resets the penalty timer, creating escalating timeouts that strongly discourage brute force attempts.
 
 ### Dynamic Difficulty Scaling
 
@@ -209,15 +228,33 @@ The Cap class supports comprehensive configuration options to fine-tune security
 
 #### Performance-Optimized (Fast User Experience)
 ```php
+#### Performance-Focused (Faster Validation)
+```php
 $config = [
     'challengeCount' => 2,           // Fewer challenges
     'challengeDifficulty' => 1,      // Lower base difficulty  
-    'rateLimitRps' => 15,            // More permissive rate limiting
     'bruteForceLimit' => 8,          // Higher brute force threshold
+    'bruteForceWindow' => 30,        // Shorter time window
+    'bruteForcePenalty' => 30,       // Shorter penalty duration
     'difficultyModerate' => 2,       // Gentler difficulty scaling
     'difficultyAggressive' => 3,
     'storage' => new FileStorage(['path' => '/tmp/cap_fast.json'])
 ];
+```
+
+#### Security-Focused (Maximum Protection)
+```php
+$config = [
+    'challengeCount' => 5,           // More challenges
+    'challengeDifficulty' => 3,      // Higher base difficulty
+    'bruteForceLimit' => 3,          // Very low brute force threshold
+    'bruteForceWindow' => 120,       // 2 minute time window
+    'bruteForcePenalty' => 300,      // 5 minute penalty duration
+    'difficultyModerate' => 5,       // Aggressive difficulty scaling
+    'difficultyAggressive' => 7,
+    'storage' => new MysqlStorage([...])
+];
+```
 ```
 
 #### Security-Focused (Maximum Protection)
@@ -238,9 +275,8 @@ $config = [
 #### Disabled Features (Minimal Setup)
 ```php
 $config = [
-    'bruteForceEnabled' => false,         // Disable brute force protection
+    'bruteForcePenalty' => 0,             // Disable brute force protection (set penalty to 0)
     'dynamicDifficultyEnabled' => false,  // Disable difficulty scaling
-    'rateLimitRps' => 0,                  // Disable rate limiting
     'storage' => new FileStorage(['path' => '/tmp/cap_simple.json'])
 ];
 ```

@@ -61,7 +61,7 @@ class MysqlStorage implements StorageInterface
     /**
      * @inheritDoc
      */
-    public function getChallenge(string $token, bool $delete = false): ?array
+    public function getChallenge(string $token): ?array
     {
         try {
             $sql = "SELECT data FROM {$this->table} WHERE `key` = ? AND key_type = 'challenge' AND expires_at > ? LIMIT 1";
@@ -72,6 +72,21 @@ class MysqlStorage implements StorageInterface
         } catch (\PDOException $e) {
             error_log("MySQLStorage: Failed to get challenge: " . $e->getMessage());
             return null;
+        }
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public function removeChallenge(string $token): bool
+    {
+        try {
+            $sql = "DELETE FROM {$this->table} WHERE `key` = ? AND key_type = 'challenge'";
+            $stmt = $this->pdo->prepare($sql);
+            return $stmt->execute([$token]);
+        } catch (\PDOException $e) {
+            error_log("MySQLStorage: Failed to remove challenge: " . $e->getMessage());
+            return false;
         }
     }
     

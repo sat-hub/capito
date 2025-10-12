@@ -28,6 +28,15 @@ interface StorageInterface
     public function getChallenge(string $token): ?array;
 
     /**
+     * Remove a challenge token from storage.
+     * Used when an incorrect solution is provided to prevent reuse of the same challenge.
+     *
+     * @param string $token The challenge token to remove.
+     * @return bool True on success, false on failure.
+     */
+    public function removeChallenge(string $token): bool;
+
+    /**
      * Sets a new verification token, typically after a challenge is solved.
      *
      * @param string $token The new token to store.

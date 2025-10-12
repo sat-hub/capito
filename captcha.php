@@ -21,8 +21,9 @@ $capServer = new Cap([
     'challengeCount' => 3,          // 3 challenges (1–3 seconds to solve)   [== 5 higher sec]
     'challengeSize' => 16,          // 16-byte salt    
     'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]
-    'rateLimitRps' => 10,           // 10 req/sec rate limit                 [==5 stricter rate]
-    'rateLimitBurst' => 50,         // 50 burst capacity                     [==20 smaller burst]
+    'bruteForceLimit' => 3,         // 3 requests max per window              [==5 default limit]
+    'bruteForceWindow' => 60,       // 60 second time window                  [==30 shorter window]
+    'bruteForcePenalty' => 60,      // 60 second penalty when blocked         [==120 longer penalty]
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
     'tokenExpires' => 600,          // Token expires in 10 minutes  
@@ -45,7 +46,6 @@ $clientIP = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '')[0]
          ?: $_SERVER['HTTP_X_REAL_IP'] 
          ?? $_SERVER['REMOTE_ADDR'] 
          ?? null;
-$clientIP = null; //disable limiter
 
 // Set CORS headers (applies to all responses)
 header('Access-Control-Allow-Origin: *');
