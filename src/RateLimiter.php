@@ -3,73 +3,71 @@
 namespace Capito\CapPhpServer;
 
 /**
- * Rate limiter implementation using token bucket algorithm
- * Enhanced with persistent storage support for multi-process environments
+ * Brute Force Protection Rate Limiter
+ * Tracks request counts with rolling penalty system - blocked requests must wait full penalty duration
  */
 class RateLimiter
 {
-    private int $rps;
-    private int $burst;
     private $storage; // Can be MysqlStorage, FileStorage, etc.
     private int $bucketExpiry;
 
     /**
-     * Create a new rate limiter
-     * @param int $rps Requests per second
-     * @param int $burst Maximum burst capacity
+     * Create a new brute force protection rate limiter
      * @param object|null $storage Storage backend with rate limit methods (null for in-memory)
      * @param int $bucketExpiry Bucket expiry time in seconds (default: 1 hour)
      */
-    public function __construct(int $rps = 10, int $burst = 50, $storage = null, int $bucketExpiry = 3600)
+    public function __construct($storage = null, int $bucketExpiry = 3600)
     {
-        $this->rps = $rps;
-        $this->burst = $burst;
         $this->storage = $storage;
         $this->bucketExpiry = $bucketExpiry;
     }
 
     /**
-     * Check if request is allowed for the given key
+     * Check if request is allowed with rolling penalty system
      * @param string $key Identifier for rate limiting (e.g., IP address)
-     * @param int|null $limit Custom limit for this request (optional)
-     * @param int|null $window Custom window for this request (optional)
+     * @param int $limit Maximum requests allowed in the time window
+     * @param int $window Time window in seconds for counting requests
+     * @param int $penalty Penalty duration in seconds for blocked requests (0 = disabled)
      * @return bool Whether request is allowed
      */
-    public function allow(string $key, ?int $limit = null, ?int $window = null): bool
+    public function allow(string $key, int $limit, int $window, int $penalty = 60): bool
     {
-        $limit = $limit ?? $this->rps;
-        $window = $window ?? 1; // 1 second window
-        
-        if ($limit <= 0 || $this->burst <= 0) {
+        if ($limit <= 0 || $penalty <= 0) {
             return true; // Rate limiting disabled
         }
-
-        $now = microtime(true);
-        
-        // Get bucket from storage or create new one
+        $now = time();
         $bucket = $this->getBucket($key);
-        if ($bucket === null) {
+        // Check conditions for creating a new bucket
+        $isFirstRequest = ($bucket === null);
+        $hasPenalty = ($bucket !== null && $bucket['penalty_until'] !== null);
+        $isPenaltyExpired = ($hasPenalty && $now >= $bucket['penalty_until']);
+        $isWindowExpired = ($bucket !== null && $now >= $bucket['window_end']);       
+        // Create new bucket if: no bucket exists, penalty expired, or window expired
+        if ($isFirstRequest || $isPenaltyExpired || $isWindowExpired) {
             $bucket = [
-                'tokens' => $this->burst,
-                'last_refill' => $now
+                'count' => 1,
+                'window_start' => $now,
+                'window_end' => $now + $window,
+                'penalty_until' => null
             ];
-        }
-        
-        // Calculate tokens to add based on time elapsed
-        $elapsed = $now - $bucket['last_refill'];
-        $tokensToAdd = $elapsed * $limit / $window;
-        
-        // Refill tokens
-        $bucket['tokens'] = min($this->burst, $bucket['tokens'] + $tokensToAdd);
-        $bucket['last_refill'] = $now;
-
-        // Check if we can consume a token
-        if ($bucket['tokens'] >= 1) {
-            $bucket['tokens']--;
             $this->setBucket($key, $bucket);
             return true;
         }
-
+        // Check if we're under penalty from previous blocked request
+        if ($hasPenalty && !$isPenaltyExpired){
+            // Still under penalty : extend penalty by making another blocked request
+            $bucket['penalty_until'] = $now + $penalty;
+            $this->setBucket($key, $bucket);
+            return false;
+        }       
+        // We're still in the current window - check if we can allow this request
+        if ($bucket['count'] < $limit) {
+            $bucket['count']++;
+            $this->setBucket($key, $bucket);
+            return true;
+        }    
+        // Rate limit exceeded - impose rolling penalty
+        $bucket['penalty_until'] = $now + $penalty;
         $this->setBucket($key, $bucket);
         return false;
     }
@@ -100,6 +98,8 @@ class RateLimiter
         }
     }
 
+
+
     /**
      * Reset rate limit for a specific key
      * @param string $key Identifier to reset
@@ -112,44 +112,77 @@ class RateLimiter
     }
 
     /**
-     * Get current token count for a key
+     * Get remaining request allowance for a key with rolling penalty system
      * @param string $key Identifier
-     * @return float Current token count
+     * @param int $limit Maximum requests allowed in the window (defaults to 5)
+     * @param int $window Time window in seconds (defaults to 60)
+     * @param int $penalty Penalty duration in seconds (defaults to 60)
+     * @return int Remaining requests allowed (0 if under penalty)
      */
-    public function getTokens(string $key): float
+    public function getTokens(string $key, int $limit = 5, int $window = 60, int $penalty = 60): int
     {
         $bucket = $this->getBucket($key);
         if ($bucket === null) {
-            return $this->burst;
+            return $limit; // No requests made yet, full allowance available
         }
 
-        $now = microtime(true);
-        $elapsed = $now - $bucket['last_refill'];
-        $tokensToAdd = $elapsed * $this->rps;
+        $now = time();
         
-        return min($this->burst, $bucket['tokens'] + $tokensToAdd);
+        // Check if we're under penalty
+        if ($bucket['penalty_until'] !== null && $now < $bucket['penalty_until']) {
+            return 0; // Under penalty, no requests allowed
+        }
+        
+        // Check if penalty has expired
+        if ($bucket['penalty_until'] !== null && $now >= $bucket['penalty_until']) {
+            return $limit; // Penalty expired, full allowance available
+        }
+        
+        // Check if current window has expired - if so, full allowance is available
+        if ($now >= $bucket['window_end']) {
+            return $limit; // Window expired, full allowance available
+        }
+        
+        // We're still in the current window - return remaining allowance
+        return max(0, $limit - $bucket['count']);
     }
 
     /**
-     * Set rate limit parameters
-     * @param int $rps Requests per second
-     * @param int $burst Maximum burst capacity
-     */
-    public function setLimits(int $rps, int $burst): void
-    {
-        $this->rps = $rps;
-        $this->burst = $burst;
-    }
-
-    /**
-     * Get current rate limit settings
-     * @return array ['rps' => int, 'burst' => int]
+     * Get information about rate limiting status
+     * @param string $key Identifier
+     * @return array Rate limiting information
      */
     public function getLimits(): array
     {
         return [
-            'rps' => $this->rps,
-            'burst' => $this->burst
+            'type' => 'rolling_penalty',
+            'description' => 'Brute force protection with rolling penalty system - blocked requests must wait full penalty duration'
+        ];
+    }
+
+    /**
+     * Get penalty status for a key
+     * @param string $key Identifier
+     * @return array Penalty status information
+     */
+    public function getPenaltyStatus(string $key): array
+    {
+        $bucket = $this->getBucket($key);
+        if ($bucket === null) {
+            return [
+                'under_penalty' => false,
+                'penalty_until' => null,
+                'seconds_remaining' => 0
+            ];
+        }
+
+        $now = time();
+        $underPenalty = $bucket['penalty_until'] !== null && $now < $bucket['penalty_until'];
+        
+        return [
+            'under_penalty' => $underPenalty,
+            'penalty_until' => $bucket['penalty_until'],
+            'seconds_remaining' => $underPenalty ? $bucket['penalty_until'] - $now : 0
         ];
     }
 }

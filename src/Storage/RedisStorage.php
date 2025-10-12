@@ -92,7 +92,7 @@ class RedisStorage implements StorageInterface
     /**
      * @inheritDoc
      */
-    public function getChallenge(string $token, bool $delete = false): ?array
+    public function getChallenge(string $token): ?array
     {
         try {
             $jsonData = $this->redis->get($this->getKey($token));
@@ -110,6 +110,19 @@ class RedisStorage implements StorageInterface
         } catch (Exception $e) {
             error_log("RedisStorage: Failed to get challenge: " . $e->getMessage());
             return null;
+        }
+    }
+    
+    /**
+     * @inheritDoc
+     */
+    public function removeChallenge(string $token): bool
+    {
+        try {
+            return $this->redis->del($this->getKey($token)) !== false;
+        } catch (Exception $e) {
+            error_log("RedisStorage: Failed to remove challenge: " . $e->getMessage());
+            return false;
         }
     }
     

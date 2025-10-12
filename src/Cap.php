@@ -24,13 +24,11 @@ class Cap
     private const DEFAULT_EXPIRES_MS = 600000;    // 10 minutes
     private const DEFAULT_TOKEN_EXPIRES_MS = 1200000; // 20 minutes
     private const DEFAULT_TOKEN_VERIFY_ONCE = true;
-    // --- Default Rate Limiting Configuration ---
-    private const DEFAULT_RATE_LIMIT_RPS = 10;
-    private const DEFAULT_RATE_LIMIT_BURST = 50;
+
     // --- Default Brute Force Protection Configuration ---
-    private const DEFAULT_BRUTE_FORCE_ENABLED = true;
     private const DEFAULT_BRUTE_FORCE_LIMIT = 5;
     private const DEFAULT_BRUTE_FORCE_WINDOW = 60; // seconds
+    private const DEFAULT_BRUTE_FORCE_PENALTY = 60; // seconds
     // --- Default Dynamic Difficulty Configuration ---
     private const DEFAULT_DYNAMIC_DIFFICULTY_ENABLED = true;
     private const DEFAULT_DIFFICULTY_MODERATE = 3;  // Difficulty when 40-80% of rate limit used
@@ -48,11 +46,10 @@ class Cap
      * - challengeExpires: int - Challenge expiration in seconds (default: 600).
      * - tokenExpires: int - Token expiration in seconds (default: 1200).
      * - tokenVerifyOnce: bool - One-time token verification (default: true).
-     * - rateLimitRps: int - Rate limit requests per second (default: 10).
-     * - rateLimitBurst: int - Rate limit burst capacity (default: 50).
-     * - bruteForceEnabled: bool - Enable brute force protection (default: true).
+
      * - bruteForceLimit: int - Max challenge requests per window (default: 5).
      * - bruteForceWindow: int - Brute force time window in seconds (default: 60).
+     * - bruteForcePenalty: int - Penalty duration in seconds when limit exceeded (default: 60, set 0 to disable).
      * - dynamicDifficultyEnabled: bool - Enable dynamic difficulty scaling (default: true).
      * - difficultyModerate: int - Difficulty when moderate rate limiting pressure (default: 3).
      * - difficultyAggressive: int - Difficulty when high rate limiting pressure (default: 4).
@@ -68,12 +65,10 @@ class Cap
             'challengeExpires' => self::DEFAULT_EXPIRES_MS / 1000,
             'tokenExpires' => self::DEFAULT_TOKEN_EXPIRES_MS / 1000,
             'tokenVerifyOnce' => self::DEFAULT_TOKEN_VERIFY_ONCE,
-            'rateLimitRps' => self::DEFAULT_RATE_LIMIT_RPS,
-            'rateLimitBurst' => self::DEFAULT_RATE_LIMIT_BURST,
             // Brute force protection settings
-            'bruteForceEnabled' => self::DEFAULT_BRUTE_FORCE_ENABLED,
             'bruteForceLimit' => self::DEFAULT_BRUTE_FORCE_LIMIT,
             'bruteForceWindow' => self::DEFAULT_BRUTE_FORCE_WINDOW,
+            'bruteForcePenalty' => self::DEFAULT_BRUTE_FORCE_PENALTY,
             // Dynamic difficulty settings
             'dynamicDifficultyEnabled' => self::DEFAULT_DYNAMIC_DIFFICULTY_ENABLED,
             'difficultyModerate' => self::DEFAULT_DIFFICULTY_MODERATE,
@@ -86,79 +81,49 @@ class Cap
             throw CapException::storageError('StorageInterface implementation must be provided in configuration.');
         }
         $this->storage = $this->config['storage'];
-        $this->initializeRateLimiter();
-    }
-    
-    /**
-     * Initialize rate limiter.
-     */
-    private function initializeRateLimiter(): void
-    {
-        if ($this->config['rateLimitRps'] > 0 && $this->config['rateLimitBurst'] > 0) {
-            // Pass storage to rate limiter if it supports rate limit methods
-            $storage = null;
-            if ($this->storage !== null && 
-                method_exists($this->storage, 'getRateLimitBucket') &&
-                method_exists($this->storage, 'setRateLimitBucket') &&
-                method_exists($this->storage, 'deleteRateLimitBucket')) {
-                $storage = $this->storage;
-            }
-                
-            $this->rateLimiter = new RateLimiter(
-                $this->config['rateLimitRps'],
-                $this->config['rateLimitBurst'],
-                $storage
-            );
+        
+        // Create rate limiter for brute force protection (disabled if penalty = 0)
+        if ($this->config['bruteForcePenalty'] > 0) {
+            // All StorageInterface implementations are required to support rate limit methods
+            $this->rateLimiter = new RateLimiter($this->storage);
         }
     }
 
     /**
-     * Check rate limit for the given identifier with anti-brute force protection.
-     * @param string $identifier Rate limit identifier (e.g., IP address).
-     * @param string $action Action type ('challenge', 'redeem', 'validate')
+     * Check rate limit for challenge creation with anti-brute force protection.
+     * @param string $currentIP Current client IP address.
      * @return bool Whether request is allowed.
      * @throws CapException If rate limited.
      */
-    private function checkRateLimit(string $identifier, string $action = 'general'): bool
+    private function checkRateLimit(string $currentIP): bool
     {
-        if ($this->rateLimiter === null) {
-            return true; // Rate limiting disabled
-        }
-        
         // Check for brute force on challenge creation
-        if ($action === 'challenge' && $this->config['bruteForceEnabled']) {
-            $bruteForceKey = "brute_force:" . $identifier;
+        if ($this->rateLimiter !== null) {
             $limit = $this->config['bruteForceLimit'];
             $window = $this->config['bruteForceWindow'];
-            $isAllowed = $this->rateLimiter->allow($bruteForceKey, $limit, $window);
-            
+            $penalty = $this->config['bruteForcePenalty'];
+            $isAllowed = $this->rateLimiter->allow($currentIP, $limit, $window, $penalty);    
             if (!$isAllowed) {
-                $waitTime = $window === 60 ? '1 minute' : "{$window} seconds";
-                throw CapException::rateLimited("Too many challenge requests. Rate limit exceeded for: {$identifier}. Please wait {$waitTime}.");
+                throw CapException::rateLimited("Too many challenge requests. Rate limit exceeded for: {$currentIP}. Please retry in a few minutes.");
             }
-        }
-        
-        // Standard rate limiting
-        if (!$this->rateLimiter->allow($identifier)) {
-            throw CapException::rateLimited("Rate limit exceeded for: {$identifier}");
-        }
-        
+        } 
         return true;
     }
 
     /**
      * Calculate dynamic difficulty based on recent challenge requests
-     * @param string $identifier Rate limit identifier (e.g., IP address)
+     * @param string $currentIP Current client IP address
      * @return int Difficulty level (2-6, where higher is more difficult)
      */
-    private function calculateDynamicDifficulty(string $identifier): int
+    private function calculateDynamicDifficulty(string $currentIP): int
     {
         if ($this->rateLimiter === null || !$this->config['dynamicDifficultyEnabled'] || !$this->config['bruteForceEnabled']) {
             return $this->config['challengeDifficulty'];
         }
 
-        $remainingTokens = $this->rateLimiter->getTokens("brute_force:" . $identifier);
         $limit = $this->config['bruteForceLimit'];
+        $window = $this->config['bruteForceWindow'];
+        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $limit, $window);
         
         if ($remainingTokens < max(1, $limit * 0.4)) return $this->config['difficultyAggressive'];
         if ($remainingTokens < max(1, $limit * 0.8)) return $this->config['difficultyModerate'];
@@ -169,19 +134,19 @@ class Cap
     
     /**
      * Create a new challenge.
-     * @param string|null $identifier Rate limit identifier (e.g., IP address).
+     * @param string|null $currentIP Current client IP address.
      * @return array Challenge response.
      * @throws CapException
      */
-    public function createChallenge(?string $identifier = null): array
+    public function createChallenge(?string $currentIP = null): array
     {
-        if ($identifier !== null) {
-            $this->checkRateLimit($identifier, 'challenge');
+        if ($currentIP !== null) {
+            $this->checkRateLimit($currentIP);
         }
         
         // Calculate dynamic difficulty based on recent requests
-        $difficulty = ($identifier !== null) 
-            ? $this->calculateDynamicDifficulty($identifier)
+        $difficulty = ($currentIP !== null) 
+            ? $this->calculateDynamicDifficulty($currentIP)
             : $this->config['challengeDifficulty'];
             
         $challenges = [];
@@ -211,15 +176,12 @@ class Cap
     /**
      * Redeem a challenge solution.
      * @param array $solution Solution data (must contain 'token' and 'solutions').
-     * @param string|null $identifier Rate limit identifier (e.g., IP address).
+     * @param string|null $currentIP Current client IP address.
      * @return array Redeem response.
      * @throws CapException
      */
-    public function redeemChallenge(array $solution, ?string $identifier = null): array
+    public function redeemChallenge(array $solution, ?string $currentIP = null): array
     {
-        if ($identifier !== null) {
-            $this->checkRateLimit($identifier);
-        }
         if (!isset($solution['token']) || $solution['token'] === '' || !isset($solution['solutions'])) {
             throw CapException::invalidChallenge('Invalid solution body: missing token or solutions.');
         }
@@ -273,12 +235,15 @@ class Cap
                     $mapSalt = $legacyKey;
                 }
             }
-            if (!isset($solutionsMap[$mapSalt])) {
-                $this->throwFailure($solutions, $challenges, $token, "No solution found for challenge {$challengeIndex} with salt {$salt}.");
-            }
-            $solutionValue = $solutionsMap[$mapSalt];
-            if (!$this->isHashSolutionValid($salt, $target, $solutionValue)) {
-                $this->throwFailure($solutions, $challenges, $token, "Invalid solution for challenge {$challengeIndex}.");
+            $solutionValue = $solutionsMap[$mapSalt] ?? null;
+            if ($solutionValue === null || !$this->isHashSolutionValid($salt, $target, $solutionValue)) {
+                // Remove the challenge to prevent reuse after incorrect solution
+                $this->storage->removeChallenge($token);
+                $errorMessage = $solutionValue === null 
+                    ? "No solution found for challenge {$challengeIndex} with salt {$salt}."
+                    : "Invalid solution for challenge {$challengeIndex}.";
+                sleep(15); // 15 seconds delay to slow down brute force attempts
+                $this->throwFailure($solutions, $challenges, $token, $errorMessage);
             }
         }
     }
@@ -354,15 +319,12 @@ class Cap
      * Validate a verification token.
      * @param string $token Token to validate (format: id:vertoken).
      * @param array|null $conf Token configuration (e.g., ['keepToken' => bool]).
-     * @param string|null $identifier Rate limit identifier (e.g., IP address).
+     * @param string|null $currentIP Current client IP address.
      * @return array Validation response.
      * @throws CapException
      */
-    public function validateToken(string $token, ?array $conf = null, ?string $identifier = null): array
+    public function validateToken(string $token, ?array $conf = null, ?string $currentIP = null): array
     {
-        if ($identifier !== null) {
-            $this->checkRateLimit($identifier);
-        }
         $parts = explode(':', $token);
         if (count($parts) !== 2) {
             return ['success' => false, 'message' => 'Invalid token format.'];
@@ -447,11 +409,11 @@ class Cap
     }
 
     /**
-     * Get security status for an identifier
-     * @param string $identifier Rate limit identifier (e.g., IP address)
+     * Get security status for an IP address
+     * @param string $currentIP Current client IP address
      * @return array Security status information
      */
-    public function getSecurityStatus(string $identifier): array
+    public function getSecurityStatus(string $currentIP): array
     {
         if ($this->rateLimiter === null || !$this->config['bruteForceEnabled']) {
             return [
@@ -463,10 +425,10 @@ class Cap
             ];
         }
 
-        $bruteForceKey = "brute_force:" . $identifier;
-        $remainingTokens = $this->rateLimiter->getTokens($bruteForceKey);
-        $difficulty = $this->calculateDynamicDifficulty($identifier);
         $bruteForceLimit = $this->config['bruteForceLimit'];
+        $bruteForceWindow = $this->config['bruteForceWindow'];
+        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $bruteForceLimit, $bruteForceWindow);
+        $difficulty = $this->calculateDynamicDifficulty($currentIP);
         
         // Calculate thresholds dynamically based on configuration
         $highThreshold = max(1, $bruteForceLimit * 0.4);

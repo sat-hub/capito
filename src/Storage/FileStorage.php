@@ -62,6 +62,26 @@ class FileStorage implements StorageInterface
     }
     
     /**
+     * Remove a challenge token from storage.
+     * Used when an incorrect solution is provided to prevent reuse of the same challenge.
+     * @param string $token Challenge token to remove
+     * @return bool True on success, false on failure
+     */
+    public function removeChallenge(string $token): bool
+    {
+        try {
+            if (isset($this->state['challengesList'][$token])) {
+                unset($this->state['challengesList'][$token]);
+                $this->saveStateToFile();
+            }
+            return true;
+        } catch (Exception $e) {
+            error_log("FileStorage: Failed to remove challenge: " . $e->getMessage());
+            return false;
+        }
+    }
+    
+    /**
      * Sets a new verification token and removes the old challenge token.
      * @param string $token New verification token key.
      * @param int $expiresTs Expiration timestamp (seconds).

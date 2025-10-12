@@ -18,12 +18,11 @@ use Capito\CapPhpServer\Exceptions\CapException;
 $capServer = new Cap([
     'challengeCount' => 3,          // 3 challenges (1–3 seconds to solve)   [== 5 higher sec]
     'challengeSize' => 16,          // 16-byte salt    
-    'rateLimitRps' => 10,           // 10 req/sec rate limit                 [==5 stricter rate]
-    'rateLimitBurst' => 50,         // 50 burst capacity                     [==20 smaller burst]
-    'bruteForceLimit' => 3,         // 5 token
-    'bruteForceWindow' => 60,        // .. per minute
+    'bruteForceLimit' => 3,         // 3 requests max per window              [==5 default limit]
+    'bruteForceWindow' => 60,       // 60 second time window                  [==30 shorter window]
+    'bruteForcePenalty' => 60,      // 60 second penalty when blocked         [==120 longer penalty]
     'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]                     
-    'difficultyModerate'=>3,     	// Difficulty level when moderate rate limiting pressure detected
+    'difficultyModerate'=>3,      	// Difficulty level when moderate rate limiting pressure detected
     'difficultyAggressive'=>5,      // Difficulty level when high limiting pressure detected
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
