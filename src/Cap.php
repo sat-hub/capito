@@ -120,14 +120,11 @@ class Cap
         if ($this->rateLimiter === null || !$this->config['dynamicDifficultyEnabled']) {
             return $this->config['challengeDifficulty'];
         }
-
         $limit = $this->config['bruteForceLimit'];
         $window = $this->config['bruteForceWindow'];
-        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $limit, $window);
-        
+        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $limit, $window);      
         if ($remainingTokens < max(1, $limit * 0.4)) return $this->config['difficultyAggressive'];
         if ($remainingTokens < max(1, $limit * 0.8)) return $this->config['difficultyModerate'];
-        
         return $this->config['challengeDifficulty']; // Normal difficulty
     }
 
