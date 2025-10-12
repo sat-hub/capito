@@ -117,7 +117,7 @@ class Cap
      */
     private function calculateDynamicDifficulty(string $currentIP): int
     {
-        if ($this->rateLimiter === null || !$this->config['dynamicDifficultyEnabled'] || !$this->config['bruteForceEnabled']) {
+        if ($this->rateLimiter === null || !$this->config['dynamicDifficultyEnabled']) {
             return $this->config['challengeDifficulty'];
         }
 
@@ -415,35 +415,33 @@ class Cap
      */
     public function getSecurityStatus(string $currentIP): array
     {
-        if ($this->rateLimiter === null || !$this->config['bruteForceEnabled']) {
+        if ($this->rateLimiter === null) {
             return [
                 'rate_limiting_enabled' => false,
-                'brute_force_enabled' => $this->config['bruteForceEnabled'],
+                'brute_force_enabled' => false,
+                'brute_force_penalty' => $this->config['bruteForcePenalty'],
                 'dynamic_difficulty_enabled' => $this->config['dynamicDifficultyEnabled'],
                 'difficulty_level' => $this->config['challengeDifficulty'],
                 'status' => 'normal'
             ];
         }
-
         $bruteForceLimit = $this->config['bruteForceLimit'];
         $bruteForceWindow = $this->config['bruteForceWindow'];
         $remainingTokens = $this->rateLimiter->getTokens($currentIP, $bruteForceLimit, $bruteForceWindow);
         $difficulty = $this->calculateDynamicDifficulty($currentIP);
-        
         // Calculate thresholds dynamically based on configuration
         $highThreshold = max(1, $bruteForceLimit * 0.4);
-        $lowThreshold = max(1, $bruteForceLimit * 0.8);
-        
+        $lowThreshold = max(1, $bruteForceLimit * 0.8);    
         $status = 'normal';
         if ($remainingTokens < $highThreshold) {
             $status = 'high_security';
         } elseif ($remainingTokens < $lowThreshold) {
             $status = 'elevated_security';
         }
-
         return [
             'rate_limiting_enabled' => true,
-            'brute_force_enabled' => $this->config['bruteForceEnabled'],
+            'brute_force_enabled' => true,
+            'brute_force_penalty' => $this->config['bruteForcePenalty'],
             'dynamic_difficulty_enabled' => $this->config['dynamicDifficultyEnabled'],
             'remaining_tokens' => $remainingTokens,
             'max_tokens' => $bruteForceLimit,
@@ -451,6 +449,7 @@ class Cap
             'base_difficulty' => $this->config['challengeDifficulty'],
             'status' => $status,
             'window_seconds' => $this->config['bruteForceWindow'],
+            'penalty_seconds' => $this->config['bruteForcePenalty'],
             'thresholds' => [
                 'high_security' => $highThreshold,
                 'elevated_security' => $lowThreshold
