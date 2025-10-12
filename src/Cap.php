@@ -120,11 +120,16 @@ class Cap
         if ($this->rateLimiter === null || !$this->config['dynamicDifficultyEnabled']) {
             return $this->config['challengeDifficulty'];
         }
+
         $limit = $this->config['bruteForceLimit'];
         $window = $this->config['bruteForceWindow'];
-        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $limit, $window);      
-        if ($remainingTokens < max(1, $limit * 0.4)) return $this->config['difficultyAggressive'];
-        if ($remainingTokens < max(1, $limit * 0.8)) return $this->config['difficultyModerate'];
+        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $limit, $window);
+        
+        // Aggressive: >80% used = <20% remaining
+        if ($remainingTokens < max(1, $limit * 0.2)) return $this->config['difficultyAggressive'];
+        // Moderate: 40-80% used = 20-60% remaining  
+        if ($remainingTokens < max(1, $limit * 0.6)) return $this->config['difficultyModerate'];
+        
         return $this->config['challengeDifficulty']; // Normal difficulty
     }
 
@@ -137,14 +142,13 @@ class Cap
      */
     public function createChallenge(?string $currentIP = null): array
     {
-        if ($currentIP !== null) {
-            $this->checkRateLimit($currentIP);
-        }
-        
-        // Calculate dynamic difficulty based on recent requests
+        // Calculate dynamic difficulty BEFORE consuming rate limit token
         $difficulty = ($currentIP !== null) 
             ? $this->calculateDynamicDifficulty($currentIP)
             : $this->config['challengeDifficulty'];
+        if ($currentIP !== null) {
+            $this->checkRateLimit($currentIP);
+        }
             
         $challenges = [];
         for ($i = 0; $i < $this->config['challengeCount']; $i++) {
@@ -427,8 +431,10 @@ class Cap
         $remainingTokens = $this->rateLimiter->getTokens($currentIP, $bruteForceLimit, $bruteForceWindow);
         $difficulty = $this->calculateDynamicDifficulty($currentIP);
         // Calculate thresholds dynamically based on configuration
-        $highThreshold = max(1, $bruteForceLimit * 0.4);
-        $lowThreshold = max(1, $bruteForceLimit * 0.8);    
+        // High security: >80% used = <20% remaining
+        $highThreshold = max(1, $bruteForceLimit * 0.2);
+        // Elevated security: 40-80% used = 20-60% remaining
+        $lowThreshold = max(1, $bruteForceLimit * 0.6);    
         $status = 'normal';
         if ($remainingTokens < $highThreshold) {
             $status = 'high_security';
