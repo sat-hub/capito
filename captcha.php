@@ -15,15 +15,15 @@ use Capito\CapPhpServer\Storage\FileStorage;
 //use Capito\CapPhpServer\Storage\RedisStorage;
 use Capito\CapPhpServer\Exceptions\CapException;
 
-const ADMINCapPath= '';   // can be for example '/admin' in this case, use API : '/admin/validate'
 $capServer = new Cap([
-    // High-performance configuration (optimized for 90%+ improvement)
     'challengeCount' => 3,          // 3 challenges (1–3 seconds to solve)   [== 5 higher sec]
     'challengeSize' => 16,          // 16-byte salt    
-    'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]
     'bruteForceLimit' => 3,         // 3 requests max per window              [==5 default limit]
     'bruteForceWindow' => 60,       // 60 second time window                  [==30 shorter window]
     'bruteForcePenalty' => 60,      // 60 second penalty when blocked         [==120 longer penalty]
+    'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]                     
+    'difficultyModerate'=>3,      	// Difficulty level when moderate rate limiting pressure detected
+    'difficultyAggressive'=>5,      // Difficulty level when high limiting pressure detected
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
     'tokenExpires' => 600,          // Token expires in 10 minutes  
@@ -38,8 +38,6 @@ $capServer = new Cap([
     //    'table'    => 'cap_tokens'
     //])
 ]);
-
-
 // Get request path and client IP
 $requestPath = $_SERVER['PATH_INFO'];    
 $clientIP = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '')[0]
@@ -240,4 +238,5 @@ function handleStats(Cap $capServer)
 }
 
 ?>
+
 
