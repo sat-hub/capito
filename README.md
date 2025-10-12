@@ -10,9 +10,8 @@
 
 A lightweight, high-performance open-source security validation library that distinguishes human users from bots via compute-intensive tasks, providing a secure, interaction-free validation method. 
 
-Compatible with 🧢[CapJs](https://capjs.js.org/) Widget [github](https://github.com/tiagozip/cap). 
-
-Mainly crafted from [Sparkinzy Cap Php Server](https://github.com/Sparkinzy/cap_php_server) but also inspired by [Cap pow](https://github.com/clysss/cap-pow-php-server). 
+Compatible with 🧢[CapJs](https://capjs.js.org/) Widget [github](https://github.com/tiagozip/cap). Tested with widget 0.1.28+ 
+If you're using react, have a look to this widget : [takeshape/use-cap](https://github.com/takeshape/use-cap)
 
 [![PHP Version](https://img.shields.io/badge/PHP-%3E%3D8.0-blue)](https://php.net)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -608,11 +607,11 @@ All APIs return a unified error format on failure:
 ## 🙏 Acknowledgments
 
 This project is inspired by the following excellent projects:
-- **[@sparkinzy](https://github.com/sparkinzy)** - Thanks a lot for this great job  
-- **[Cap pow](https://github.com/clysss/cap-pow-php-server)** - 
+- **[@sparkinzy](https://github.com/sparkinzy)** - We used the structure of this project, but more or less all have been rewritten : as 09.25 Sparkinzy was just NOT working at all correctly in our env : the DDOS and Captcha are using in memory persistence that never exists in PHP. For transparency, if you need to compare our work, you can find it here in a branch)
+- **[Cap pow](https://github.com/onexru/cap-pow-php-server)** - Also interesting but not usable in production in 09.25. Perhaps because they have a commercial solution also available (not in github). In Chinese
 - **[@cap.js/server](https://github.com/tiagorangel1/cap)** – Original Cap.js project
 - **[go-cap](https://github.com/ackcoder/go-cap)** – Go implementation, architecture reference
-- **PHP Community** – Rich ecosystem and best practices
+
 
 ## 📄 License
 
