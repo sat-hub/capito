@@ -156,6 +156,129 @@ $capServer = new Cap([
     'rateLimitBurst' => 20,         // 20 burst capacity, smaller burst
 ```
 
+## ⚙️ Complete Configuration Reference
+
+The Cap class supports comprehensive configuration options to fine-tune security, performance, and behavior.
+
+### Basic Challenge Configuration
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `challengeCount` | `int` | `3` | Number of proof-of-work challenges to generate |
+| `challengeSize` | `int` | `16` | Size of challenge salt in hexadecimal characters |
+| `challengeDifficulty` | `int` | `2` | Base difficulty level (higher = more computation required) |
+| `challengeExpires` | `int` | `600` | Challenge expiration time in seconds (10 minutes) |
+
+### Token Configuration
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `tokenExpires` | `int` | `1200` | Verification token expiration time in seconds (20 minutes) |
+| `tokenVerifyOnce` | `bool` | `true` | Whether tokens can only be validated once |
+
+### Rate Limiting Configuration
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `rateLimitRps` | `int` | `10` | Requests per second allowed per identifier |
+| `rateLimitBurst` | `int` | `50` | Maximum burst capacity for rate limiting |
+
+### Brute Force Protection
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `bruteForceEnabled` | `bool` | `true` | Enable/disable brute force protection |
+| `bruteForceLimit` | `int` | `5` | Maximum challenge requests per time window |
+| `bruteForceWindow` | `int` | `60` | Brute force protection window in seconds |
+
+### Dynamic Difficulty Scaling
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dynamicDifficultyEnabled` | `bool` | `true` | Enable automatic difficulty adjustment based on usage patterns |
+| `difficultyModerate` | `int` | `3` | Difficulty level when moderate rate limiting pressure detected |
+| `difficultyAggressive` | `int` | `4` | Difficulty level when high rate limiting pressure detected |
+
+### Storage Configuration
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `storage` | `StorageInterface` | **Required** | Storage backend implementation (FileStorage, MysqlStorage, etc.) |
+
+### Configuration Examples
+
+#### Performance-Optimized (Fast User Experience)
+```php
+$config = [
+    'challengeCount' => 2,           // Fewer challenges
+    'challengeDifficulty' => 1,      // Lower base difficulty  
+    'rateLimitRps' => 15,            // More permissive rate limiting
+    'bruteForceLimit' => 8,          // Higher brute force threshold
+    'difficultyModerate' => 2,       // Gentler difficulty scaling
+    'difficultyAggressive' => 3,
+    'storage' => new FileStorage(['path' => '/tmp/cap_fast.json'])
+];
+```
+
+#### Security-Focused (Maximum Protection)
+```php
+$config = [
+    'challengeCount' => 5,           // More challenges
+    'challengeDifficulty' => 3,      // Higher base difficulty
+    'rateLimitRps' => 3,             // Strict rate limiting
+    'rateLimitBurst' => 10,          // Small burst allowance
+    'bruteForceLimit' => 5,          // Low brute force threshold
+    'bruteForceWindow' => 120,       // Longer protection window
+    'difficultyModerate' => 5,       // Aggressive difficulty scaling
+    'difficultyAggressive' => 7,
+    'storage' => new MysqlStorage([...])
+];
+```
+
+#### Disabled Features (Minimal Setup)
+```php
+$config = [
+    'bruteForceEnabled' => false,         // Disable brute force protection
+    'dynamicDifficultyEnabled' => false,  // Disable difficulty scaling
+    'rateLimitRps' => 0,                  // Disable rate limiting
+    'storage' => new FileStorage(['path' => '/tmp/cap_simple.json'])
+];
+```
+
+### Dynamic Behavior
+
+**Rate Limiting Thresholds (Progressive Escalation):**
+- **Normal**: Uses base `challengeDifficulty` when few tokens consumed (< 20% of limit used)
+  - *Example: With default bruteForceLimit of 5, when ≤ 1 token used*
+- **Moderate**: Uses `difficultyModerate` when moderate usage (≥ 20% of limit used)
+  - *Example: With default limit of 5, triggers when ≥ 2 tokens used*  
+- **Aggressive**: Uses `difficultyAggressive` when heavy usage (≥ 60% of limit used)
+  - *Example: With default limit of 5, triggers when ≥ 3 tokens used*
+
+**First Challenge Behavior:**
+- **First request from new identifier**: Always uses `challengeDifficulty` (starts with full token bucket)
+- **Subsequent requests**: Dynamic difficulty kicks in as rate limit tokens are consumed
+- *Example: With default settings, first 2 challenges use base difficulty, then scaling begins*
+
+**Threshold Calculation:**
+- Moderate pressure threshold = `max(1, bruteForceLimit * 0.8)`
+- High pressure threshold = `max(1, bruteForceLimit * 0.4)`
+- Thresholds automatically scale with your `bruteForceLimit` setting. The `max(1, ...)` ensures thresholds never drop below 1, handling edge cases with very low limits.
+
+**Security Status Levels:**
+These status levels are returned by the `getSecurityStatus($identifier)` method for monitoring and debugging purposes:
+- `normal`: Sufficient rate limit tokens available (< 20% of limit used)
+- `elevated_security`: Moderate pressure detected (20-60% of limit used)  
+- `high_security`: High pressure detected (≥ 60% of limit used)
+```php
+// Get security status for monitoring
+$status = $cap->getSecurityStatus($clientIP);
+echo "Current status: " . $status['status']; // 'normal', 'elevated_security', or 'high_security'
+echo "Difficulty: " . $status['difficulty_level'];
+echo "Tokens used: " . ($status['max_tokens'] - $status['remaining_tokens']);
+```
+No built-in API endpoint exists for security status - it's available programmatically for custom monitoring/logging implementations.
+
 ## 🔦 Installation
 ### Composer Installation
 
@@ -300,26 +423,7 @@ sequenceDiagram
 - **Memory Optimization**: Prevents leaks and accumulation
 - **Configurable Interval**: Flexible cleanup schedule
 
-## ⚙️ Configuration Options
 
-### Basic Configuration
-
-| Option                | Type            | Default | Description                            |
-|-----------------------|-----------------|---------|----------------------------------------|
-| challengeCount        | int             | 3       | Number of challenges (affects time)    |
-| challengeSize         | int             | 16      | Salt size (bytes)                      |
-| challengeDifficulty   | int             | 2       | Challenge difficulty (affects compute) |
-| challengeExpires      | int             | 600     | Challenge expiry (seconds)             |
-| tokenExpires          | int             | 1200    | Token expiry (seconds)                 |
-| tokenVerifyOnce       | bool            | true    | One-time token validation              |
-
-### Security Configuration
-
-| Option                | Type            | Default | Description                            |
-|-----------------------|-----------------|---------|----------------------------------------|
-| rateLimitRps          | int             | 10      | Requests per second limit              |
-| rateLimitBurst        | int             | 50      | Burst capacity                         |
-| autoCleanupInterval   | int             | 300     | Cleanup interval (seconds)             |
 
 ### System Stats
 
