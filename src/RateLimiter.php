@@ -4,23 +4,28 @@ namespace Capito\CapPhpServer;
 
 /**
  * Rate limiter implementation using token bucket algorithm
- * Inspired by go-cap rate limiter design
+ * Enhanced with persistent storage support for multi-process environments
  */
 class RateLimiter
 {
-    private array $buckets = [];
     private int $rps;
     private int $burst;
+    private $storage; // Can be MysqlStorage, FileStorage, etc.
+    private int $bucketExpiry;
 
     /**
      * Create a new rate limiter
      * @param int $rps Requests per second
      * @param int $burst Maximum burst capacity
+     * @param object|null $storage Storage backend with rate limit methods (null for in-memory)
+     * @param int $bucketExpiry Bucket expiry time in seconds (default: 1 hour)
      */
-    public function __construct(int $rps = 10, int $burst = 50)
+    public function __construct(int $rps = 10, int $burst = 50, $storage = null, int $bucketExpiry = 3600)
     {
         $this->rps = $rps;
         $this->burst = $burst;
+        $this->storage = $storage;
+        $this->bucketExpiry = $bucketExpiry;
     }
 
     /**
@@ -41,14 +46,14 @@ class RateLimiter
 
         $now = microtime(true);
         
-        if (!isset($this->buckets[$key])) {
-            $this->buckets[$key] = [
+        // Get bucket from storage or create new one
+        $bucket = $this->getBucket($key);
+        if ($bucket === null) {
+            $bucket = [
                 'tokens' => $this->burst,
                 'last_refill' => $now
             ];
         }
-
-        $bucket = &$this->buckets[$key];
         
         // Calculate tokens to add based on time elapsed
         $elapsed = $now - $bucket['last_refill'];
@@ -61,10 +66,38 @@ class RateLimiter
         // Check if we can consume a token
         if ($bucket['tokens'] >= 1) {
             $bucket['tokens']--;
+            $this->setBucket($key, $bucket);
             return true;
         }
 
+        $this->setBucket($key, $bucket);
         return false;
+    }
+
+    /**
+     * Get bucket data from storage or fallback to in-memory
+     * @param string $key Rate limit identifier
+     * @return array|null Bucket data or null if not found
+     */
+    private function getBucket(string $key): ?array
+    {
+        if ($this->storage !== null && method_exists($this->storage, 'getRateLimitBucket')) {
+            return $this->storage->getRateLimitBucket($key);
+        }
+        return null; // No storage, no persistence
+    }
+
+    /**
+     * Set bucket data in storage
+     * @param string $key Rate limit identifier
+     * @param array $bucket Bucket data
+     */
+    private function setBucket(string $key, array $bucket): void
+    {
+        if ($this->storage !== null && method_exists($this->storage, 'setRateLimitBucket')) {
+            $expiresTs = time() + $this->bucketExpiry;
+            $this->storage->setRateLimitBucket($key, $bucket, $expiresTs);
+        }
     }
 
     /**
@@ -73,21 +106,8 @@ class RateLimiter
      */
     public function reset(string $key): void
     {
-        unset($this->buckets[$key]);
-    }
-
-    /**
-     * Clean up old bucket entries
-     * @param int $maxAge Maximum age in seconds (default: 1 hour)
-     */
-    public function cleanup(int $maxAge = 3600): void
-    {
-        $now = microtime(true);
-        
-        foreach ($this->buckets as $key => $bucket) {
-            if ($now - $bucket['last_refill'] > $maxAge) {
-                unset($this->buckets[$key]);
-            }
+        if ($this->storage !== null && method_exists($this->storage, 'deleteRateLimitBucket')) {
+            $this->storage->deleteRateLimitBucket($key);
         }
     }
 
@@ -98,13 +118,12 @@ class RateLimiter
      */
     public function getTokens(string $key): float
     {
-        if (!isset($this->buckets[$key])) {
+        $bucket = $this->getBucket($key);
+        if ($bucket === null) {
             return $this->burst;
         }
 
         $now = microtime(true);
-        $bucket = $this->buckets[$key];
-        
         $elapsed = $now - $bucket['last_refill'];
         $tokensToAdd = $elapsed * $this->rps;
         

@@ -73,29 +73,77 @@ class Cap
     private function initializeRateLimiter(): void
     {
         if ($this->config['rateLimitRps'] > 0 && $this->config['rateLimitBurst'] > 0) {
+            // Pass storage to rate limiter if it supports rate limit methods
+            $storage = null;
+            if ($this->storage !== null && 
+                method_exists($this->storage, 'getRateLimitBucket') &&
+                method_exists($this->storage, 'setRateLimitBucket') &&
+                method_exists($this->storage, 'deleteRateLimitBucket')) {
+                $storage = $this->storage;
+            }
+                
             $this->rateLimiter = new RateLimiter(
                 $this->config['rateLimitRps'],
-                $this->config['rateLimitBurst']
+                $this->config['rateLimitBurst'],
+                $storage
             );
         }
     }
 
     /**
-     * Check rate limit for the given identifier.
+     * Check rate limit for the given identifier with anti-brute force protection.
      * @param string $identifier Rate limit identifier (e.g., IP address).
+     * @param string $action Action type ('challenge', 'redeem', 'validate')
      * @return bool Whether request is allowed.
      * @throws CapException If rate limited.
      */
-    private function checkRateLimit(string $identifier): bool
+    private function checkRateLimit(string $identifier, string $action = 'general'): bool
     {
         if ($this->rateLimiter === null) {
             return true; // Rate limiting disabled
-        }         
+        }
+        
+        // Check for brute force on challenge creation (5 per minute)
+        if ($action === 'challenge') {
+            $bruteForceKey = "brute_force:" . $identifier;
+            $isAllowed = $this->rateLimiter->allow($bruteForceKey, 5, 60); // 5 requests per 60 seconds
+            
+            if (!$isAllowed) {
+                throw CapException::rateLimited("Too many challenge requests. Rate limit exceeded for: {$identifier}. Please wait 1 minute.");
+            }
+        }
+        
+        // Standard rate limiting
         if (!$this->rateLimiter->allow($identifier)) {
             throw CapException::rateLimited("Rate limit exceeded for: {$identifier}");
         }
         
         return true;
+    }
+
+    /**
+     * Calculate dynamic difficulty based on recent challenge requests
+     * @param string $identifier Rate limit identifier (e.g., IP address)
+     * @return int Difficulty level (2-6, where higher is more difficult)
+     */
+    private function calculateDynamicDifficulty(string $identifier): int
+    {
+        if ($this->rateLimiter === null) {
+            return $this->config['challengeDifficulty'];
+        }
+
+        $bruteForceKey = "brute_force:" . $identifier;
+        $remainingTokens = $this->rateLimiter->getTokens($bruteForceKey);
+        
+        // If user has used most of their tokens (less than 2 remaining out of 5)
+        // increase difficulty progressively
+        if ($remainingTokens < 2) {
+            return min(6, $this->config['challengeDifficulty'] + 2); // +2 difficulty
+        } elseif ($remainingTokens < 4) {
+            return min(6, $this->config['challengeDifficulty'] + 1); // +1 difficulty
+        }
+        
+        return $this->config['challengeDifficulty']; // Normal difficulty
     }
 
     
@@ -108,12 +156,18 @@ class Cap
     public function createChallenge(?string $identifier = null): array
     {
         if ($identifier !== null) {
-            $this->checkRateLimit($identifier);
+            $this->checkRateLimit($identifier, 'challenge');
         }
+        
+        // Calculate dynamic difficulty based on recent requests
+        $difficulty = ($identifier !== null) 
+            ? $this->calculateDynamicDifficulty($identifier)
+            : $this->config['challengeDifficulty'];
+            
         $challenges = [];
         for ($i = 0; $i < $this->config['challengeCount']; $i++) {
             $salt = $this->generateRandomHex($this->config['challengeSize']);
-            $target = $this->generateRandomHex($this->config['challengeDifficulty']);
+            $target = $this->generateRandomHex($difficulty);
             $challenges[] = [$salt, $target];
         }
         $token = $this->generateRandomHex(50);
@@ -370,6 +424,43 @@ class Cap
     public function getRateLimiter(): ?RateLimiter
     {
         return $this->rateLimiter;
+    }
+
+    /**
+     * Get security status for an identifier
+     * @param string $identifier Rate limit identifier (e.g., IP address)
+     * @return array Security status information
+     */
+    public function getSecurityStatus(string $identifier): array
+    {
+        if ($this->rateLimiter === null) {
+            return [
+                'rate_limiting_enabled' => false,
+                'difficulty_level' => $this->config['challengeDifficulty'],
+                'status' => 'normal'
+            ];
+        }
+
+        $bruteForceKey = "brute_force:" . $identifier;
+        $remainingTokens = $this->rateLimiter->getTokens($bruteForceKey);
+        $difficulty = $this->calculateDynamicDifficulty($identifier);
+        
+        $status = 'normal';
+        if ($remainingTokens < 2) {
+            $status = 'high_security';
+        } elseif ($remainingTokens < 4) {
+            $status = 'elevated_security';
+        }
+
+        return [
+            'rate_limiting_enabled' => true,
+            'remaining_tokens' => $remainingTokens,
+            'max_tokens' => 5,
+            'difficulty_level' => $difficulty,
+            'base_difficulty' => $this->config['challengeDifficulty'],
+            'status' => $status,
+            'window_seconds' => 60
+        ];
     }
 
     /**

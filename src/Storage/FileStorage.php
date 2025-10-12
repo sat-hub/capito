@@ -13,7 +13,7 @@ use Capito\CapPhpServer\Interfaces\StorageInterface;
 class FileStorage implements StorageInterface
 {
     private string $filePath;
-    private array $state = ['challengesList' => [], 'tokensList' => []];
+    private array $state = ['challengesList' => [], 'tokensList' => [], 'rateLimitList' => []];
 
     public function __construct(array $config)
     {
@@ -143,19 +143,110 @@ class FileStorage implements StorageInterface
         $this->loadStateFromFile();
         $cleaned = false;
         $now = microtime(true) * 1000;
+        $currentTime = time();
+        
+        // Clean expired challenges
         foreach ($this->state['challengesList'] as $token => $data) {
             if ($data['expires'] < $now) {
                 unset($this->state['challengesList'][$token]);
                 $cleaned = true;
             }
         }
+        
+        // Clean expired tokens
         foreach ($this->state['tokensList'] as $key => $expires) {
             if ($expires < $now) {
                 unset($this->state['tokensList'][$key]);
                 $cleaned = true;
             }
         }
+        
+        // Clean expired rate limit buckets
+        if (isset($this->state['rateLimitList'])) {
+            foreach ($this->state['rateLimitList'] as $key => $bucket) {
+                if (isset($bucket['expires_at']) && $bucket['expires_at'] <= $currentTime) {
+                    unset($this->state['rateLimitList'][$key]);
+                    $cleaned = true;
+                }
+            }
+        }
+        
         return $cleaned;
+    }
+
+    /**
+     * Set rate limit bucket data for a key
+     * @param string $key Rate limit identifier (e.g., IP address)
+     * @param array $bucketData Bucket data ['tokens' => float, 'last_refill' => float]
+     * @param int $expiresTs Expiration timestamp
+     * @return bool Success status
+     */
+    public function setRateLimitBucket(string $key, array $bucketData, int $expiresTs): bool
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            $this->state['rateLimitList'][$rateLimitKey] = [
+                'data' => $bucketData,
+                'expires_at' => $expiresTs
+            ];
+            $this->saveStateToFile();
+            return true;
+        } catch (Exception $e) {
+            error_log("FileStorage: Failed to set rate limit bucket: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get rate limit bucket data for a key
+     * @param string $key Rate limit identifier (e.g., IP address)
+     * @return array|null Bucket data or null if not found/expired
+     */
+    public function getRateLimitBucket(string $key): ?array
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            
+            if (!isset($this->state['rateLimitList'][$rateLimitKey])) {
+                return null;
+            }
+
+            $bucket = $this->state['rateLimitList'][$rateLimitKey];
+            
+            // Check if expired
+            if ($bucket['expires_at'] <= time()) {
+                unset($this->state['rateLimitList'][$rateLimitKey]);
+                $this->saveStateToFile();
+                return null;
+            }
+
+            return $bucket['data'];
+        } catch (Exception $e) {
+            error_log("FileStorage: Failed to get rate limit bucket: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Delete rate limit bucket for a key
+     * @param string $key Rate limit identifier
+     * @return bool Success status
+     */
+    public function deleteRateLimitBucket(string $key): bool
+    {
+        try {
+            $rateLimitKey = "rate_limit:" . $key;
+            
+            if (isset($this->state['rateLimitList'][$rateLimitKey])) {
+                unset($this->state['rateLimitList'][$rateLimitKey]);
+                $this->saveStateToFile();
+            }
+            
+            return true;
+        } catch (Exception $e) {
+            error_log("FileStorage: Failed to delete rate limit bucket: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**
