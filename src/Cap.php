@@ -27,6 +27,15 @@ class Cap
     // --- Default Rate Limiting Configuration ---
     private const DEFAULT_RATE_LIMIT_RPS = 10;
     private const DEFAULT_RATE_LIMIT_BURST = 50;
+    // --- Default Brute Force Protection Configuration ---
+    private const DEFAULT_BRUTE_FORCE_ENABLED = true;
+    private const DEFAULT_BRUTE_FORCE_LIMIT = 5;
+    private const DEFAULT_BRUTE_FORCE_WINDOW = 60; // seconds
+    // --- Default Dynamic Difficulty Configuration ---
+    private const DEFAULT_DYNAMIC_DIFFICULTY_ENABLED = true;
+    private const DEFAULT_DIFFICULTY_INCREASE_LOW = 1;   // +1 difficulty when tokens < 4
+    private const DEFAULT_DIFFICULTY_INCREASE_HIGH = 2;  // +2 difficulty when tokens < 2
+    private const DEFAULT_DIFFICULTY_MAX = 6;
     
     /**
      * Create a new Cap instance.
@@ -42,6 +51,13 @@ class Cap
      * - tokenVerifyOnce: bool - One-time token verification (default: true).
      * - rateLimitRps: int - Rate limit requests per second (default: 10).
      * - rateLimitBurst: int - Rate limit burst capacity (default: 50).
+     * - bruteForceEnabled: bool - Enable brute force protection (default: true).
+     * - bruteForceLimit: int - Max challenge requests per window (default: 5).
+     * - bruteForceWindow: int - Brute force time window in seconds (default: 60).
+     * - dynamicDifficultyEnabled: bool - Enable dynamic difficulty scaling (default: true).
+     * - difficultyIncreaseLow: int - Difficulty increase when tokens < 4 (default: 1).
+     * - difficultyIncreaseHigh: int - Difficulty increase when tokens < 2 (default: 2).
+     * - difficultyMax: int - Maximum difficulty level (default: 6).
      * * @throws CapException if storage is not provided.
      */
     public function __construct(?array $configObj = null)
@@ -56,6 +72,15 @@ class Cap
             'tokenVerifyOnce' => self::DEFAULT_TOKEN_VERIFY_ONCE,
             'rateLimitRps' => self::DEFAULT_RATE_LIMIT_RPS,
             'rateLimitBurst' => self::DEFAULT_RATE_LIMIT_BURST,
+            // Brute force protection settings
+            'bruteForceEnabled' => self::DEFAULT_BRUTE_FORCE_ENABLED,
+            'bruteForceLimit' => self::DEFAULT_BRUTE_FORCE_LIMIT,
+            'bruteForceWindow' => self::DEFAULT_BRUTE_FORCE_WINDOW,
+            // Dynamic difficulty settings
+            'dynamicDifficultyEnabled' => self::DEFAULT_DYNAMIC_DIFFICULTY_ENABLED,
+            'difficultyIncreaseLow' => self::DEFAULT_DIFFICULTY_INCREASE_LOW,
+            'difficultyIncreaseHigh' => self::DEFAULT_DIFFICULTY_INCREASE_HIGH,
+            'difficultyMax' => self::DEFAULT_DIFFICULTY_MAX,
         ];
         if ($configObj !== null) {
             $this->config = array_merge($this->config, array_intersect_key($configObj, $this->config));
@@ -103,13 +128,16 @@ class Cap
             return true; // Rate limiting disabled
         }
         
-        // Check for brute force on challenge creation (5 per minute)
-        if ($action === 'challenge') {
+        // Check for brute force on challenge creation
+        if ($action === 'challenge' && $this->config['bruteForceEnabled']) {
             $bruteForceKey = "brute_force:" . $identifier;
-            $isAllowed = $this->rateLimiter->allow($bruteForceKey, 5, 60); // 5 requests per 60 seconds
+            $limit = $this->config['bruteForceLimit'];
+            $window = $this->config['bruteForceWindow'];
+            $isAllowed = $this->rateLimiter->allow($bruteForceKey, $limit, $window);
             
             if (!$isAllowed) {
-                throw CapException::rateLimited("Too many challenge requests. Rate limit exceeded for: {$identifier}. Please wait 1 minute.");
+                $waitTime = $window === 60 ? '1 minute' : "{$window} seconds";
+                throw CapException::rateLimited("Too many challenge requests. Rate limit exceeded for: {$identifier}. Please wait {$waitTime}.");
             }
         }
         
@@ -128,19 +156,23 @@ class Cap
      */
     private function calculateDynamicDifficulty(string $identifier): int
     {
-        if ($this->rateLimiter === null) {
+        if ($this->rateLimiter === null || !$this->config['dynamicDifficultyEnabled'] || !$this->config['bruteForceEnabled']) {
             return $this->config['challengeDifficulty'];
         }
 
         $bruteForceKey = "brute_force:" . $identifier;
         $remainingTokens = $this->rateLimiter->getTokens($bruteForceKey);
+        $bruteForceLimit = $this->config['bruteForceLimit'];
         
-        // If user has used most of their tokens (less than 2 remaining out of 5)
-        // increase difficulty progressively
-        if ($remainingTokens < 2) {
-            return min(6, $this->config['challengeDifficulty'] + 2); // +2 difficulty
-        } elseif ($remainingTokens < 4) {
-            return min(6, $this->config['challengeDifficulty'] + 1); // +1 difficulty
+        // Calculate thresholds based on the configurable brute force limit
+        $highThreshold = max(1, $bruteForceLimit * 0.4); // 40% of limit (2 out of 5 by default)
+        $lowThreshold = max(1, $bruteForceLimit * 0.8);  // 80% of limit (4 out of 5 by default)
+        
+        // Increase difficulty progressively based on remaining tokens
+        if ($remainingTokens < $highThreshold) {
+            return min($this->config['difficultyMax'], $this->config['challengeDifficulty'] + $this->config['difficultyIncreaseHigh']);
+        } elseif ($remainingTokens < $lowThreshold) {
+            return min($this->config['difficultyMax'], $this->config['challengeDifficulty'] + $this->config['difficultyIncreaseLow']);
         }
         
         return $this->config['challengeDifficulty']; // Normal difficulty
@@ -433,9 +465,11 @@ class Cap
      */
     public function getSecurityStatus(string $identifier): array
     {
-        if ($this->rateLimiter === null) {
+        if ($this->rateLimiter === null || !$this->config['bruteForceEnabled']) {
             return [
                 'rate_limiting_enabled' => false,
+                'brute_force_enabled' => $this->config['bruteForceEnabled'],
+                'dynamic_difficulty_enabled' => $this->config['dynamicDifficultyEnabled'],
                 'difficulty_level' => $this->config['challengeDifficulty'],
                 'status' => 'normal'
             ];
@@ -444,22 +478,33 @@ class Cap
         $bruteForceKey = "brute_force:" . $identifier;
         $remainingTokens = $this->rateLimiter->getTokens($bruteForceKey);
         $difficulty = $this->calculateDynamicDifficulty($identifier);
+        $bruteForceLimit = $this->config['bruteForceLimit'];
+        
+        // Calculate thresholds dynamically based on configuration
+        $highThreshold = max(1, $bruteForceLimit * 0.4);
+        $lowThreshold = max(1, $bruteForceLimit * 0.8);
         
         $status = 'normal';
-        if ($remainingTokens < 2) {
+        if ($remainingTokens < $highThreshold) {
             $status = 'high_security';
-        } elseif ($remainingTokens < 4) {
+        } elseif ($remainingTokens < $lowThreshold) {
             $status = 'elevated_security';
         }
 
         return [
             'rate_limiting_enabled' => true,
+            'brute_force_enabled' => $this->config['bruteForceEnabled'],
+            'dynamic_difficulty_enabled' => $this->config['dynamicDifficultyEnabled'],
             'remaining_tokens' => $remainingTokens,
-            'max_tokens' => 5,
+            'max_tokens' => $bruteForceLimit,
             'difficulty_level' => $difficulty,
             'base_difficulty' => $this->config['challengeDifficulty'],
             'status' => $status,
-            'window_seconds' => 60
+            'window_seconds' => $this->config['bruteForceWindow'],
+            'thresholds' => [
+                'high_security' => $highThreshold,
+                'elevated_security' => $lowThreshold
+            ]
         ];
     }
 
