@@ -605,7 +605,7 @@ All APIs return a unified error format on failure:
 ```
 
 ## 🙏 Acknowledgments
-
+Thanks [Cap.js](https://capjs.js.org/guide/community.html) to refence Capito as The PHP implementation of Cap ! 
 This project is inspired by the following excellent projects:
 - **[@sparkinzy](https://github.com/sparkinzy)** - We used the structure of this project, but more or less all have been rewritten : as 09.25 Sparkinzy was just NOT working at all correctly in our env : the DDOS and Captcha are using in memory persistence that never exists in PHP. For transparency, if you need to compare our work, you can find it here in a branch)
 - **[Cap pow](https://github.com/onexru/cap-pow-php-server)** - Also interesting but not usable in production in 09.25. Perhaps because they have a commercial solution also available (not in github). In Chinese
