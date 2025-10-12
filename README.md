@@ -605,13 +605,14 @@ All APIs return a unified error format on failure:
 ```
 
 ## 🙏 Acknowledgments
-Thanks [Cap.js](https://capjs.js.org/guide/community.html) to refence Capito as The PHP implementation of Cap ! 
-This project is inspired by the following excellent projects:
+Thanks [Cap.js Documentation](https://capjs.js.org/guide/community.html) to reference Capito as The PHP implementation of Cap !
+
+This project is inspired by the following excellent works:
 - **[@sparkinzy](https://github.com/sparkinzy)** - We used the structure of this project, but more or less all have been rewritten : as 09.25 Sparkinzy was just NOT working at all correctly in our env : the DDOS and Captcha are using in memory persistence that never exists in PHP. For transparency, if you need to compare our work, you can find it here in a branch)
 - **[Cap pow](https://github.com/onexru/cap-pow-php-server)** - Also interesting but not usable in production in 09.25. Perhaps because they have a commercial solution also available (not in github). In Chinese
 - **[@cap.js/server](https://github.com/tiagorangel1/cap)** – Original Cap.js project
 - **[go-cap](https://github.com/ackcoder/go-cap)** – Go implementation, architecture reference
-
+Thanks to all for sharing your time and your brain - Please don't hesitate to contact us for improvements, bugs and ideas!
 
 ## 📄 License
 
