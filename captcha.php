@@ -15,14 +15,16 @@ use Capito\CapPhpServer\Storage\FileStorage;
 //use Capito\CapPhpServer\Storage\RedisStorage;
 use Capito\CapPhpServer\Exceptions\CapException;
 
-const ADMINCapPath= '';   // can be for example '/admin' in this case, use API : '/admin/validate'
 $capServer = new Cap([
-    // High-performance configuration (optimized for 90%+ improvement)
     'challengeCount' => 3,          // 3 challenges (1–3 seconds to solve)   [== 5 higher sec]
     'challengeSize' => 16,          // 16-byte salt    
-    'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]
     'rateLimitRps' => 10,           // 10 req/sec rate limit                 [==5 stricter rate]
     'rateLimitBurst' => 50,         // 50 burst capacity                     [==20 smaller burst]
+    'bruteForceLimit' => 3,         // 5 token
+    'bruteForceWindow' => 60,        // .. per minute
+    'challengeDifficulty' => 2,     // Difficulty 2 (balanced optimization)  [==3 hard]                     
+    'difficultyModerate'=>3,     	// Difficulty level when moderate rate limiting pressure detected
+    'difficultyAggressive'=>5,      // Difficulty level when high limiting pressure detected
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
     'tokenExpires' => 600,          // Token expires in 10 minutes  
@@ -37,15 +39,12 @@ $capServer = new Cap([
     //    'table'    => 'cap_tokens'
     //])
 ]);
-
-
 // Get request path and client IP
 $requestPath = $_SERVER['PATH_INFO'];    
 $clientIP = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '')[0]
          ?: $_SERVER['HTTP_X_REAL_IP'] 
          ?? $_SERVER['REMOTE_ADDR'] 
          ?? null;
-$clientIP = null; //disable limiter
 
 // Set CORS headers (applies to all responses)
 header('Access-Control-Allow-Origin: *');
@@ -240,4 +239,5 @@ function handleStats(Cap $capServer)
 }
 
 ?>
+
 
