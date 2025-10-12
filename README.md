@@ -205,10 +205,9 @@ Time 48s: Request 5 ✅ (Window: 0s-60s, Count: 5/5)
 Time 50s: Request 6 ❌ BLOCKED! (Must wait 60s → unblocked at 110s)
 Time 55s: Request 7 ❌ BLOCKED! (Penalty resets → unblocked at 115s)  
 Time 60s: Request 8 ❌ BLOCKED! (Penalty resets → unblocked at 120s)
-Time 120s: Request 9 ✅ (Penalty expired, new window starts)
+Time 121s: Request 9 ✅ (Penalty expired, new window starts)
 ```
 
-**Key Difference from Sliding Windows**: In a sliding window, making requests every 12 seconds would never be blocked. With rolling penalties, each blocked request resets the penalty timer, creating escalating timeouts that strongly discourage brute force attempts.
 
 ### Dynamic Difficulty Scaling
 
@@ -437,11 +436,25 @@ sequenceDiagram
 
 ### Security Features
 
-#### 🛡️ DDoS Protection
-- **Token Bucket Algorithm**: Prevents burst requests
-- **Per-IP Rate Limiting**: Each IP has independent limits
-- **Configurable RPS**: Flexible request frequency
-- **Burst Capacity**: Allows short burst access
+#### 🛡️ Multi-Layer DDoS Protection
+
+**Defense Architecture:**
+- **Challenge Removal Protection**: Failed attempts immediately remove challenge tokens, preventing reuse
+- **Rolling Penalty Rate Limiting**: Escalating penalties with each blocked request extending wait times  
+- **Response Delay Mechanism**: 15-second sleep on validation failures to slow attack velocity
+- **Dynamic Difficulty Scaling**: Computational barriers increase under sustained pressure
+
+**Attack Response:**
+- **Per-IP Tracking**: Each IP address has independent rate limit buckets and penalty timers
+- **Sustained Attack Mitigation**: Rapid attempts result in exponentially longer wait times
+- **Resource Conservation**: Failed challenges don't consume storage, reducing server load
+- **Adaptive Barriers**: Proof-of-work difficulty scales from normal → moderate → aggressive
+
+**Protection Layers:**
+1. **Immediate**: Challenge removal + 15s delay on failure
+2. **Short-term**: Rolling penalty system (60s default penalty)  
+3. **Medium-term**: Dynamic difficulty scaling based on usage patterns
+4. **Long-term**: Persistent rate limiting across sessions
 
 #### 🔒 Anti-Replay
 - **One-time Validation**: Tokens expire after use
