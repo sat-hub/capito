@@ -123,8 +123,8 @@ class Cap
         $limit = $this->config['bruteForceLimit'];
         $window = $this->config['bruteForceWindow'];
         $usedTokens = $this->rateLimiter->getUsedTokens($currentIP, $limit, $window);
-        if ($usedTokens >= ($limit * 0.6)) return $this->config['difficultyModerate'];      
-        if ($usedTokens >= ($limit*0.8)) return $this->config['difficultyAggressive'];
+        if ($usedTokens > ($limit*0.8)) return $this->config['difficultyAggressive'];
+        if ($usedTokens > ($limit*0.4)) return $this->config['difficultyModerate'];      
         return $this->config['challengeDifficulty']; // Normal difficulty
     }
 
@@ -137,13 +137,13 @@ class Cap
      */
     public function createChallenge(?string $currentIP = null): array
     {
-        // Calculate dynamic difficulty BEFORE consuming rate limit token
-        $difficulty = ($currentIP !== null) 
-            ? $this->calculateDynamicDifficulty($currentIP)
-            : $this->config['challengeDifficulty'];
         if ($currentIP !== null) {
             $this->checkRateLimit($currentIP);
         }
+        // Calculate dynamic difficulty AFTER consuming rate limit token
+        $difficulty = ($currentIP !== null) 
+            ? $this->calculateDynamicDifficulty($currentIP)
+            : $this->config['challengeDifficulty'];
             
         $challenges = [];
         for ($i = 0; $i < $this->config['challengeCount']; $i++) {
