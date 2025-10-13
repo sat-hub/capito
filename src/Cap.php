@@ -81,7 +81,7 @@ class Cap
             throw CapException::storageError('StorageInterface implementation must be provided in configuration.');
         }
         $this->storage = $this->config['storage'];
-        
+
         // Create rate limiter for brute force protection (disabled if penalty = 0)
         if ($this->config['bruteForcePenalty'] > 0) {
             // All StorageInterface implementations are required to support rate limit methods
@@ -106,7 +106,7 @@ class Cap
             if (!$isAllowed) {
                 throw CapException::rateLimited("Too many challenge requests. Rate limit exceeded for: {$currentIP}. Please retry in a few minutes.");
             }
-        } 
+        }
         return true;
     }
 
@@ -120,16 +120,11 @@ class Cap
         if ($this->rateLimiter === null || !$this->config['dynamicDifficultyEnabled']) {
             return $this->config['challengeDifficulty'];
         }
-
         $limit = $this->config['bruteForceLimit'];
         $window = $this->config['bruteForceWindow'];
-        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $limit, $window);
-        
-        // Aggressive: >80% used = <20% remaining
-        if ($remainingTokens < max(1, $limit * 0.2)) return $this->config['difficultyAggressive'];
-        // Moderate: 40-80% used = 20-60% remaining  
-        if ($remainingTokens < max(1, $limit * 0.6)) return $this->config['difficultyModerate'];
-        
+        $usedTokens = $this->rateLimiter->getUsedTokens($currentIP, $limit, $window);
+        if ($usedTokens >= ($limit * 0.6)) return $this->config['difficultyModerate'];      
+        if ($usedTokens >= ($limit*0.8)) return $this->config['difficultyAggressive'];
         return $this->config['challengeDifficulty']; // Normal difficulty
     }
 
@@ -363,15 +358,6 @@ class Cap
     }
 
     /**
-     * Get current configuration.
-     * @return array<string, mixed> Current configuration.
-     */
-    public function getConfig(): array
-    {
-        return $this->config;
-    }
-
-    /**
      * Get storage and rate limiter statistics.
      * @return array<string, mixed> Storage statistics.
      */
@@ -385,81 +371,10 @@ class Cap
         if (method_exists($this->storage, 'getStats')) {
             $stats['storage_stats'] = $this->storage->getStats();
         }
-        if ($this->rateLimiter !== null) {
-            $stats['rate_limiter_stats'] = $this->rateLimiter->getLimits();
-        } 
         return $stats;
     }
 
-    /**
-     * Get storage instance for advanced usage.
-     * @return StorageInterface Storage instance.
-     */
-    public function getStorage(): StorageInterface
-    {
-        return $this->storage;
-    }
-
-    /**
-     * Get rate limiter instance for advanced usage.
-     * @return RateLimiter|null Rate limiter instance or null if disabled.
-     */
-    public function getRateLimiter(): ?RateLimiter
-    {
-        return $this->rateLimiter;
-    }
-
-    /**
-     * Get security status for an IP address
-     * @param string $currentIP Current client IP address
-     * @return array Security status information
-     */
-    public function getSecurityStatus(string $currentIP): array
-    {
-        if ($this->rateLimiter === null) {
-            return [
-                'rate_limiting_enabled' => false,
-                'brute_force_enabled' => false,
-                'brute_force_penalty' => $this->config['bruteForcePenalty'],
-                'dynamic_difficulty_enabled' => $this->config['dynamicDifficultyEnabled'],
-                'difficulty_level' => $this->config['challengeDifficulty'],
-                'status' => 'normal'
-            ];
-        }
-        $bruteForceLimit = $this->config['bruteForceLimit'];
-        $bruteForceWindow = $this->config['bruteForceWindow'];
-        $remainingTokens = $this->rateLimiter->getTokens($currentIP, $bruteForceLimit, $bruteForceWindow);
-        $difficulty = $this->calculateDynamicDifficulty($currentIP);
-        // Calculate thresholds dynamically based on configuration
-        // High security: >80% used = <20% remaining
-        $highThreshold = max(1, $bruteForceLimit * 0.2);
-        // Elevated security: 40-80% used = 20-60% remaining
-        $lowThreshold = max(1, $bruteForceLimit * 0.6);    
-        $status = 'normal';
-        if ($remainingTokens < $highThreshold) {
-            $status = 'high_security';
-        } elseif ($remainingTokens < $lowThreshold) {
-            $status = 'elevated_security';
-        }
-        return [
-            'rate_limiting_enabled' => true,
-            'brute_force_enabled' => true,
-            'brute_force_penalty' => $this->config['bruteForcePenalty'],
-            'dynamic_difficulty_enabled' => $this->config['dynamicDifficultyEnabled'],
-            'remaining_tokens' => $remainingTokens,
-            'max_tokens' => $bruteForceLimit,
-            'difficulty_level' => $difficulty,
-            'base_difficulty' => $this->config['challengeDifficulty'],
-            'status' => $status,
-            'window_seconds' => $this->config['bruteForceWindow'],
-            'penalty_seconds' => $this->config['bruteForcePenalty'],
-            'thresholds' => [
-                'high_security' => $highThreshold,
-                'elevated_security' => $lowThreshold
-            ]
-        ];
-    }
-
+    
     /**
      * Generate random hex string.
      * @param int $length Length of hex string.
