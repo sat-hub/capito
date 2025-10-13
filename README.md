@@ -187,12 +187,10 @@ The Cap class supports comprehensive configuration options to fine-tune security
 | `bruteForceWindow` | `int` | `60` | Initial time window in seconds for counting requests (e.g., 5 requests per 60 seconds) |
 | `bruteForcePenalty` | `int` | `60` | Penalty duration in seconds when limit exceeded. Set to 0 to disable brute force protection |
 
-**Rolling Penalty Behavior**: When you exceed the limit (5 requests in 60 seconds), you must wait the penalty duration FROM when you made the blocked request. Each blocked request resets the penalty timer. For example, with default settings (5 requests per 60 seconds, 60-second penalty):
-- Requests 1-5: Allowed within any 60-second window
-- Request 6 at time 50s: **BLOCKED** - must wait penalty duration (60s) → unblocked at 110s
-- Request 7 at time 55s: **BLOCKED** - penalty resets → unblocked at 115s (55s + 60s penalty)
-- **Key Rule**: Every attempt while blocked extends the penalty by the full penalty duration from that attempt
-- **Disable Protection**: Set `bruteForcePenalty` to 0 to disable brute force protection entirely
+**Rolling Penalty Behavior**: When you exceed the limit (5 requests in 60 seconds), you must wait the penalty duration FROM when you made the blocked request. Each blocked request resets the penalty timer. 
+- Extending behavior - each request extends the window
+- Reset condition - only after full inactivity period
+- Penalty system - violations cause temporary blocks
 
 ### Dynamic Difficulty Scaling
 
@@ -201,6 +199,25 @@ The Cap class supports comprehensive configuration options to fine-tune security
 | `dynamicDifficultyEnabled` | `bool` | `true` | Enable automatic difficulty adjustment based on usage patterns |
 | `difficultyModerate` | `int` | `3` | Difficulty level when moderate rate limiting pressure detected |
 | `difficultyAggressive` | `int` | `4` | Difficulty level when high rate limiting pressure detected |
+
+**Rate Limiting Thresholds (Progressive Escalation):**
+- **Normal**: Uses base `challengeDifficulty` when few tokens consumed (< 20% of limit used)
+  - *Example: With default bruteForceLimit of 5, when ≤ 1 token used*
+- **Moderate**: Uses `difficultyModerate` when moderate usage (≥ 20% of limit used)
+  - *Example: With default limit of 5, triggers when ≥ 2 tokens used*  
+- **Aggressive**: Uses `difficultyAggressive` when heavy usage (≥ 60% of limit used)
+  - *Example: With default limit of 5, triggers when ≥ 3 tokens used*
+
+**First Challenge Behavior:**
+- **First request from new identifier**: Always uses `challengeDifficulty` (starts with full token bucket)
+- **Subsequent requests**: Dynamic difficulty kicks in as rate limit tokens are consumed
+- *Example: With default settings, first 2 challenges use base difficulty, then scaling begins*
+
+**Threshold Calculation:**
+- Moderate pressure threshold when usedtoken > 0.4 x limit (ie for limit=5, when 3rd and 4rd use)
+- High pressure threshold when usedtoken > 0.8 x limit (ie for limit=5, when 5rd use)
+- Thresholds automatically scale with your `bruteForceLimit` setting.
+
 
 ### Storage Configuration
 
@@ -264,26 +281,6 @@ $config = [
     'storage' => new FileStorage(['path' => '/tmp/cap_simple.json'])
 ];
 ```
-
-### Dynamic Behavior
-
-**Rate Limiting Thresholds (Progressive Escalation):**
-- **Normal**: Uses base `challengeDifficulty` when few tokens consumed (< 20% of limit used)
-  - *Example: With default bruteForceLimit of 5, when ≤ 1 token used*
-- **Moderate**: Uses `difficultyModerate` when moderate usage (≥ 20% of limit used)
-  - *Example: With default limit of 5, triggers when ≥ 2 tokens used*  
-- **Aggressive**: Uses `difficultyAggressive` when heavy usage (≥ 60% of limit used)
-  - *Example: With default limit of 5, triggers when ≥ 3 tokens used*
-
-**First Challenge Behavior:**
-- **First request from new identifier**: Always uses `challengeDifficulty` (starts with full token bucket)
-- **Subsequent requests**: Dynamic difficulty kicks in as rate limit tokens are consumed
-- *Example: With default settings, first 2 challenges use base difficulty, then scaling begins*
-
-**Threshold Calculation:**
-- Moderate pressure threshold when usedtoken > 0.4 x limit (ie for limit=5, when 3rd and 4rd use)
-- High pressure threshold when usedtoken > 0.8 x limit (ie for limit=5, when 5rd use)
-- Thresholds automatically scale with your `bruteForceLimit` setting.
 
 ## 🔦 Installation
 ### Composer Installation
