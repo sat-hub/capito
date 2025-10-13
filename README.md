@@ -295,23 +295,9 @@ $config = [
 - *Example: With default settings, first 2 challenges use base difficulty, then scaling begins*
 
 **Threshold Calculation:**
-- Moderate pressure threshold = `max(1, bruteForceLimit * 0.8)`
-- High pressure threshold = `max(1, bruteForceLimit * 0.4)`
-- Thresholds automatically scale with your `bruteForceLimit` setting. The `max(1, ...)` ensures thresholds never drop below 1, handling edge cases with very low limits.
-
-**Security Status Levels:**
-These status levels are returned by the `getSecurityStatus($identifier)` method for monitoring and debugging purposes:
-- `normal`: Sufficient rate limit tokens available (< 20% of limit used)
-- `elevated_security`: Moderate pressure detected (20-60% of limit used)  
-- `high_security`: High pressure detected (≥ 60% of limit used)
-```php
-// Get security status for monitoring
-$status = $cap->getSecurityStatus($clientIP);
-echo "Current status: " . $status['status']; // 'normal', 'elevated_security', or 'high_security'
-echo "Difficulty: " . $status['difficulty_level'];
-echo "Tokens used: " . ($status['max_tokens'] - $status['remaining_tokens']);
-```
-No built-in API endpoint exists for security status - it's available programmatically for custom monitoring/logging implementations.
+- Moderate pressure threshold when usedtoken > 0.4 x limit (ie for limit=5, when 3rd and 4rd use)
+- High pressure threshold when usedtoken > 0.8 x limit (ie for limit=5, when 5rd use)
+- Thresholds automatically scale with your `bruteForceLimit` setting.
 
 ## 🔦 Installation
 ### Composer Installation
