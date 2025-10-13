@@ -133,35 +133,4 @@ class RateLimiter
         // Return the count of used tokens in current window
         return $bucket['count'];
     }
-
-    /**
-     * Get remaining request allowance for a key with rolling penalty system
-     * @param string $key Identifier
-     * @param int $limit Maximum requests allowed in the window (defaults to 5)
-     * @param int $window Time window in seconds (defaults to 60)
-     * @param int $penalty Penalty duration in seconds (defaults to 60)
-     * @return int Remaining requests allowed (0 if under penalty)
-     */
-    public function getTokens(string $key, int $limit = 5, int $window = 60, int $penalty = 60): int
-    {
-        $bucket = $this->getBucket($key);
-        if ($bucket === null) {
-            return $limit; // No requests made yet, full allowance available
-        }
-        $now = time();
-        // Check if we're under penalty
-        if ($bucket['penalty_until'] !== null && $now < $bucket['penalty_until']) {
-            return 0; // Under penalty, no requests allowed
-        }
-        // Check if penalty has expired
-        if ($bucket['penalty_until'] !== null && $now >= $bucket['penalty_until']) {
-            return $limit; // Penalty expired, full allowance available
-        }
-        // Check if current window has expired - if so, full allowance is available
-        if ($now >= $bucket['window_end']) {
-            return $limit; // Window expired, full allowance available
-        }
-        // We're still in the current window - return remaining allowance
-        return max(0, $limit - $bucket['count']);
-    }
 }
