@@ -194,20 +194,6 @@ The Cap class supports comprehensive configuration options to fine-tune security
 - **Key Rule**: Every attempt while blocked extends the penalty by the full penalty duration from that attempt
 - **Disable Protection**: Set `bruteForcePenalty` to 0 to disable brute force protection entirely
 
-#### Rolling Penalty Example Timeline
-```
-Time 0s:  Request 1 ✅ (Window: 0s-60s, Count: 1/5)
-Time 12s: Request 2 ✅ (Window: 0s-60s, Count: 2/5)  
-Time 24s: Request 3 ✅ (Window: 0s-60s, Count: 3/5)
-Time 36s: Request 4 ✅ (Window: 0s-60s, Count: 4/5)
-Time 48s: Request 5 ✅ (Window: 0s-60s, Count: 5/5)
-Time 50s: Request 6 ❌ BLOCKED! (Must wait 60s → unblocked at 110s)
-Time 55s: Request 7 ❌ BLOCKED! (Penalty resets → unblocked at 115s)  
-Time 60s: Request 8 ❌ BLOCKED! (Penalty resets → unblocked at 120s)
-Time 121s: Request 9 ✅ (Penalty expired, new window starts)
-```
-
-
 ### Dynamic Difficulty Scaling
 
 | Parameter | Type | Default | Description |
