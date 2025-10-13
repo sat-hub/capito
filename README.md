@@ -201,12 +201,12 @@ The Cap class supports comprehensive configuration options to fine-tune security
 | `difficultyAggressive` | `int` | `4` | Difficulty level when high rate limiting pressure detected |
 
 **Rate Limiting Thresholds (Progressive Escalation):**
-- **Normal**: Uses base `challengeDifficulty` when few tokens consumed (< 20% of limit used)
-  - *Example: With default bruteForceLimit of 5, when ≤ 1 token used*
-- **Moderate**: Uses `difficultyModerate` when moderate usage (≥ 20% of limit used)
-  - *Example: With default limit of 5, triggers when ≥ 2 tokens used*  
-- **Aggressive**: Uses `difficultyAggressive` when heavy usage (≥ 60% of limit used)
-  - *Example: With default limit of 5, triggers when ≥ 3 tokens used*
+- **Normal**: Uses base `challengeDifficulty` when few tokens consumed 
+  - *Example: With default bruteForceLimit of 5, when ≤ 1rd and 2nd token used*
+- **Moderate**: Uses `difficultyModerate` when moderate usage (> 40% of limit used)
+  - *Example: With default limit of 5, triggers when 3rd and 4th tokens used*  
+- **Aggressive**: Uses `difficultyAggressive` when heavy usage (> 80% of limit used)
+  - *Example: With default limit of 5, triggers when the 5th token is used*
 
 **First Challenge Behavior:**
 - **First request from new identifier**: Always uses `challengeDifficulty` (starts with full token bucket)
