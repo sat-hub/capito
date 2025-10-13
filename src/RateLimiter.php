@@ -23,10 +23,10 @@ class RateLimiter
     }
 
     /**
-     * Check if request is allowed with rolling penalty system
+     * Check if request is allowed with extending window and rolling penalty system
      * @param string $key Identifier for rate limiting (e.g., IP address)
      * @param int $limit Maximum requests allowed in the time window
-     * @param int $window Time window in seconds for counting requests
+     * @param int $window Time window in seconds for counting requests (extends with new requests)
      * @param int $penalty Penalty duration in seconds for blocked requests (0 = disabled)
      * @return bool Whether request is allowed
      */
@@ -37,37 +37,30 @@ class RateLimiter
         }
         $now = time();
         $bucket = $this->getBucket($key);
-        // Check conditions for creating a new bucket
-        $isFirstRequest = ($bucket === null);
-        $hasPenalty = ($bucket !== null && $bucket['penalty_until'] !== null);
-        $isPenaltyExpired = ($hasPenalty && $now >= $bucket['penalty_until']);
-        $isWindowExpired = ($bucket !== null && $now >= $bucket['window_end']);       
-        // Create new bucket if: no bucket exists, penalty expired, or window expired
-        if ($isFirstRequest || $isPenaltyExpired || $isWindowExpired) {
+        
+        // Check if new, window expired, or penalty expired (unified expiry check)
+        if (($bucket === null) || ($now >= $bucket['expires_at'])) {
+            // Reset with new activity (fresh window)
             $bucket = [
                 'count' => 1,
                 'window_start' => $now,
-                'window_end' => $now + $window,
-                'penalty_until' => null
+                'expires_at' => $now + $window, // Normal window expiry
             ];
             $this->setBucket($key, $bucket);
             return true;
         }
-        // Check if we're under penalty from previous blocked request
-        if ($hasPenalty && !$isPenaltyExpired){
-            // Still under penalty : extend penalty by making another blocked request
-            $bucket['penalty_until'] = $now + $penalty;
-            $this->setBucket($key, $bucket);
-            return false;
-        }       
-        // We're still in the current window - check if we can allow this request
+        
+        // Check if we can allow this request (within current window)
         if ($bucket['count'] < $limit) {
+            // Add current request and extend window
             $bucket['count']++;
+            $bucket['expires_at'] = $now + $window; // Extend window with each new request
             $this->setBucket($key, $bucket);
             return true;
-        }    
-        // Rate limit exceeded - impose rolling penalty
-        $bucket['penalty_until'] = $now + $penalty;
+        }
+        
+        // Rate limit exceeded - impose penalty (longer expiry)
+        $bucket['expires_at'] = $now + $penalty; // Penalty period
         $this->setBucket($key, $bucket);
         return false;
     }
@@ -112,12 +105,12 @@ class RateLimiter
     }
 
     /**
-     * Get used token count for a key
+     * Get used token count for a key (extending window)
      * @param string $key Identifier
      * @param int $limit Maximum requests allowed in the window (defaults to 5)
      * @param int $window Time window in seconds (defaults to 60)
      * @param int $penalty Penalty duration in seconds (defaults to 60)
-     * @return int Number of tokens used in current window
+     * @return int Number of tokens used in current extending window
      */
     public function getUsedTokens(string $key, int $limit = 5, int $window = 60, int $penalty = 60): int
     {
@@ -125,12 +118,15 @@ class RateLimiter
         if ($bucket === null) {
             return 0; // No requests made yet
         }
+        
         $now = time();
-        // Check if current window has expired - if so, no tokens used
-        if ($now >= $bucket['window_end']) {
-            return 0; // Window expired, no tokens used in new window
+        
+        // Check if bucket has expired (window or penalty)
+        if ($now >= $bucket['expires_at']) {
+            return 0; // Bucket expired, no tokens used in new window
         }
-        // Return the count of used tokens in current window
+        
+        // Return the count of used tokens in current bucket
         return $bucket['count'];
     }
 }
