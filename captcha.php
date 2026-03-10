@@ -27,8 +27,8 @@ $capServer = new Cap([
     'tokenVerifyOnce' => true,      // One-time validation
     'challengeExpires' => 300,      // Expires in 5 minutes
     'tokenExpires' => 600,          // Token expires in 10 minutes  
-    'storage' => new FileStorage(['path' =>__DIR__ . '/../.data/cap_storage.json']) 
-    //'storage' => new SqliteStorage(['path' => __DIR__ . '/../.data/cap_data.sqlite'])
+    'storage' => new FileStorage(['path' =>__DIR__ . '/.data/cap_storage.json'])
+    //'storage' => new SqliteStorage(['path' => __DIR__ . '/.data/cap_data.sqlite'])
     //'storage' => new MysqlStorage([
     //    'host'     => 'localhost',
     //    'dbname'   => 'your_database_name',
@@ -39,7 +39,7 @@ $capServer = new Cap([
     //])
 ]);
 // Get request path and client IP
-$requestPath = $_SERVER['PATH_INFO'];    
+$requestPath = $_SERVER['REQUEST_URI'];
 $clientIP = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '')[0]
          ?: $_SERVER['HTTP_X_REAL_IP'] 
          ?? $_SERVER['REMOTE_ADDR'] 
@@ -55,6 +55,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
+
+// Set admin path prefix empty for now.
+define('ADMINCapPath', '');
 
 // HTTP routing - with modern error handling
 try {
